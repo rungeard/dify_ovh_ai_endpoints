@@ -1,0 +1,18 @@
+model: nvr-tts-en-us
+label:
+  en_US: nvr-tts-en-us
+model_type: tts
+model_properties:
+  default_voice: "default"
+  voices:
+    - mode: "default"
+      name: "Default"
+      language: ["en-US"]
+  word_limit: 3500
+  audio_type: "mp3"
+  max_workers: 5
+pricing:
+  input: "0"
+  output: "0"
+  unit: "0.001"
+  currency: EUR

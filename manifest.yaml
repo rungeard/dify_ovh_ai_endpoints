@@ -1,0 +1,33 @@
+version: 0.0.1
+type: plugin
+author: "rungeard"
+name: "ovh_ai_endpoints"
+description:
+  en_US: Access OVH AI Endpoints models through an OpenAI-compatible API.
+label:
+  en_US: "OVH AI Endpoints"
+created_at: "2026-03-31T00:00:00.000000000Z"
+icon: icon.png
+resource:
+  memory: 1048576
+  permission:
+    tool:
+      enabled: true
+    model:
+      enabled: true
+      llm: true
+      text_embedding: true
+      speech2text: true
+      tts: true
+plugins:
+  models:
+    - "provider/ovh_ai_endpoints.yaml"
+meta:
+  version: 0.0.1
+  arch:
+    - "amd64"
+    - "arm64"
+  runner:
+    language: "python"
+    version: "3.12"
+    entrypoint: "main"

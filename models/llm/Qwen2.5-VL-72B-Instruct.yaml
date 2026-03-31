@@ -1,0 +1,35 @@
+model: Qwen2.5-VL-72B-Instruct
+label:
+  en_US: Qwen2.5-VL-72B-Instruct
+model_type: llm
+features:
+  - vision
+model_properties:
+  mode: chat
+  context_size: 32768
+parameter_rules:
+  - name: temperature
+    use_template: temperature
+  - name: top_p
+    use_template: top_p
+  - name: max_tokens
+    use_template: max_tokens
+    default: 4096
+    min: 1
+    max: 16384
+  - name: response_format
+    label:
+      en_US: Response Format
+    type: string
+    required: false
+    options:
+      - text
+      - json_object
+      - json_schema
+  - name: json_schema
+    use_template: json_schema
+pricing:
+  input: "0.91"
+  output: "0.91"
+  unit: "0.000001"
+  currency: EUR

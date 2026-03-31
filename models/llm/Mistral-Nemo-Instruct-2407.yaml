@@ -1,0 +1,37 @@
+model: Mistral-Nemo-Instruct-2407
+label:
+  en_US: Mistral-Nemo-Instruct-2407
+model_type: llm
+features:
+  - tool-call
+  - multi-tool-call
+  - stream-tool-call
+model_properties:
+  mode: chat
+  context_size: 118000
+parameter_rules:
+  - name: temperature
+    use_template: temperature
+  - name: top_p
+    use_template: top_p
+  - name: max_tokens
+    use_template: max_tokens
+    default: 4096
+    min: 1
+    max: 16384
+  - name: response_format
+    label:
+      en_US: Response Format
+    type: string
+    required: false
+    options:
+      - text
+      - json_object
+      - json_schema
+  - name: json_schema
+    use_template: json_schema
+pricing:
+  input: "0.13"
+  output: "0.13"
+  unit: "0.000001"
+  currency: EUR
