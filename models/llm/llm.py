@@ -33,6 +33,38 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
     _THINK_PATTERN = re.compile(r"^<think>.*?</think>\s*", re.DOTALL)
     # Models that require max_completion_tokens (OpenAI Responses API family)
     _NEEDS_MAX_COMPLETION_TOKENS_PATTERN = re.compile(r"^(o1|o3|gpt-5)", re.IGNORECASE)
+    _OVH_ALLOWED_CHAT_PARAMETERS = {
+        "frequency_penalty",
+        "logit_bias",
+        "logprobs",
+        "max_completion_tokens",
+        "max_tokens",
+        "n",
+        "parallel_tool_calls",
+        "presence_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p",
+    }
+    _OVH_ALLOWED_COMPLETION_PARAMETERS = {
+        "best_of",
+        "echo",
+        "frequency_penalty",
+        "logprobs",
+        "max_tokens",
+        "n",
+        "presence_penalty",
+        "seed",
+        "stop",
+        "suffix",
+        "temperature",
+        "top_p",
+    }
 
     def _wrap_thinking_by_reasoning_content(self, delta: dict, is_reasoning: bool) -> tuple[str, bool]:
         """
@@ -112,14 +144,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             )
             if should_retry_floor:
                 self._retry_with_safe_min_tokens(model, credentials)
-                return
-
-            # --- Retry path 2: thinking / budget_tokens constraints ---
-            should_retry_thinking = (
-                "budget_tokens" in msg or "thinking" in msg
-            )
-            if should_retry_thinking:
-                self._retry_with_thinking_disabled(model, credentials)
                 return
 
             # Propagate unrelated validation errors
@@ -352,6 +376,15 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         credentials = build_ovh_credentials(credentials)
         schema = self.get_model_schema(model, credentials)
         model_parameters = self._sanitize_model_parameters(schema, dict(model_parameters))
+        # OVH strict mode: keep only explicitly allowed API parameters.
+        completion_type = LLMMode.value_of(credentials["mode"])
+        if completion_type is LLMMode.CHAT:
+            allowed_parameters = self._OVH_ALLOWED_CHAT_PARAMETERS
+        elif completion_type is LLMMode.COMPLETION:
+            allowed_parameters = self._OVH_ALLOWED_COMPLETION_PARAMETERS
+        else:
+            allowed_parameters = set()
+        model_parameters = {k: v for k, v in model_parameters.items() if k in allowed_parameters}
         if tools and not self._supports_tool_call(schema):
             tools = None
         # Compatibility adapter for Dify's 'json_schema' structured output mode.
@@ -394,9 +427,8 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             if user_enable_thinking is not None:
                 enable_thinking_value = bool(user_enable_thinking)
 
-        compatibility_mode = credentials.get("compatibility_mode", "strict")
-        # Default to strict mode, only switch to extended if explicitly set
-        strict_compatibility_value: bool = compatibility_mode != "extended"
+        # OVH mode: never send non-standard compatibility extensions.
+        strict_compatibility_value: bool = True
 
         if enable_thinking_value is not None and strict_compatibility_value is False:
             # Only apply when `strict_compatibility_value` is False since
@@ -417,18 +449,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             # This allows compatibility API format: {"enable_thinking": False/True}
             model_parameters["enable_thinking"] = enable_thinking_value
 
-        reasoning_effort_value = model_parameters.pop("reasoning_effort", None)
-        if enable_thinking_value is True and reasoning_effort_value is not None:
-            # Propagate reasoning_effort to both:
-            # - top-level OpenAI Chat Completions param, and
-            # - chat_template_kwargs for runtimes that read template kwargs (e.g., llama.cpp).
-            # Only apply when thinking mode is explicitly enabled.
-            model_parameters["reasoning_effort"] = reasoning_effort_value
-            if strict_compatibility_value is False:
-                # Only apply when `strict_compatibility_value` is False since
-                # `chat_template_kwargs` is a non-standard parameter.
-                chat_template_kwargs = model_parameters.setdefault("chat_template_kwargs", {})
-                chat_template_kwargs["reasoning_effort"] = reasoning_effort_value
+        model_parameters.pop("reasoning_effort", None)
         
         # Remove thinking content from assistant messages for better performance.
         with suppress(Exception):
@@ -451,7 +472,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
                 model_parameters["max_completion_tokens"] = model_parameters.pop("max_tokens")
 
         result = super()._invoke(
-            model, credentials, prompt_messages, model_parameters, tools, stop, stream, user
+            model, credentials, prompt_messages, model_parameters, tools, stop, stream, None
         )
 
         # Filter thinking content from responses if thinking mode is disabled

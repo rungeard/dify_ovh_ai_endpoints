@@ -1,10 +1,13 @@
 provider: ovh_ai_endpoints
+author: rungeard
 label:
   en_US: OVH AI Endpoints
 description:
   en_US: OVH AI Endpoints models exposed through OpenAI-compatible APIs.
 icon_small:
-  en_US: icon.png
+  en_US: icon.svg
+icon_large:
+  en_US: icon.svg
 help:
   title:
     en_US: Get your API key from OVH AI Endpoints

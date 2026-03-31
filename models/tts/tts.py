@@ -17,11 +17,12 @@ class OpenAIText2SpeechModel(OAICompatText2SpeechModel):
         user: Optional[str] = None,
     ) -> Any:
         normalized_credentials = build_ovh_credentials(credentials)
-        return super()._invoke(model, tenant_id, normalized_credentials, content_text, voice, user)
+        # OVH AI Endpoints rejects extra args such as `user`.
+        return super()._invoke(model, tenant_id, normalized_credentials, content_text, voice, None)
 
     def validate_credentials(self, model: str, credentials: dict, user: Optional[str] = None) -> None:
         normalized_credentials = build_ovh_credentials(credentials)
-        return super().validate_credentials(model, normalized_credentials, user)
+        return super().validate_credentials(model, normalized_credentials, None)
 
     def get_customizable_model_schema(
         self, model: str, credentials: Mapping | dict
