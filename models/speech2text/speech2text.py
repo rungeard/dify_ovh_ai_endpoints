@@ -1,13 +1,19 @@
-from typing import IO,Optional
+import logging
+from typing import IO, Optional
 from urllib.parse import urljoin
-from dify_plugin.errors.model import InvokeBadRequestError
+
 import requests
 from dify_plugin.entities.model import AIModelEntity, FetchFrom, I18nObject, ModelType
+from dify_plugin.errors.model import InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
 from dify_plugin.interfaces.model.openai_compatible.speech2text import OAICompatSpeech2TextModel
 from models.ovh_credentials import build_ovh_credentials
 
+logger = logging.getLogger(__name__)
+
 
 class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
+    _INVOKE_TIMEOUT = (10, 120)
+
     def _invoke(self, model: str, credentials: dict, file: IO[bytes], user: Optional[str] = None) -> str:
         """
         Invoke speech2text model
@@ -34,12 +40,39 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
         prompt = credentials.get("initial_prompt", "convert the audio to text")
         payload = {"model": credentials.get("endpoint_model_name", model), "language": language, "prompt": prompt}
         files = [("file", file)]
-        response = requests.post(endpoint_url, headers=headers, data=payload, files=files)  # noqa: S113
+        try:
+            response = requests.post(
+                endpoint_url, headers=headers, data=payload, files=files, timeout=self._INVOKE_TIMEOUT
+            )
+        except requests.exceptions.Timeout as ex:
+            logger.error("STT request timed out for endpoint %s", endpoint_url)
+            raise InvokeServerUnavailableError(
+                f"Speech-to-text request timed out while calling {endpoint_url}."
+            ) from ex
+        except requests.exceptions.RequestException as ex:
+            logger.error("STT request failed for endpoint %s: %s", endpoint_url, ex)
+            raise InvokeServerUnavailableError(
+                f"Speech-to-text request failed while calling {endpoint_url}: {ex!s}"
+            ) from ex
 
         if response.status_code != 200:
-            raise InvokeBadRequestError(response.text)
-        response_data = response.json()
-        return response_data["text"]
+            error_body = response.text[:1000]
+            logger.error("STT API error %s: %s", response.status_code, error_body)
+            raise InvokeBadRequestError(
+                f"Speech-to-text API returned status {response.status_code}: {error_body}"
+            )
+
+        try:
+            response_data = response.json()
+        except ValueError as ex:
+            logger.error("STT API returned invalid JSON payload.")
+            raise InvokeError("Speech-to-text API returned an invalid JSON response.") from ex
+
+        text = response_data.get("text")
+        if not isinstance(text, str):
+            raise InvokeError("Speech-to-text API response does not contain a valid 'text' field.")
+
+        return text
 
     def get_customizable_model_schema(
         self, model: str, credentials: dict

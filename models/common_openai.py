@@ -29,7 +29,7 @@ class _CommonOpenAI:
 
         if credentials.get("endpoint_url"):
             openai_api_base = credentials["endpoint_url"].rstrip("/")
-            credentials_kwargs["base_url"] = openai_api_base + "/v1"
+            credentials_kwargs["base_url"] = openai_api_base
 
         if "openai_organization" in credentials:
             credentials_kwargs["organization"] = credentials["openai_organization"]

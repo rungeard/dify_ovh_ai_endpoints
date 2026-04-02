@@ -64,3 +64,15 @@ Reference date: 2026-03-31.
 - `Mistral-Nemo-Instruct-2407`: 118K
 - `Qwen3Guard-Gen-8B`: 32K
 - `Qwen3Guard-Gen-0.6B`: 32K
+
+### Submission metadata
+
+- Repository: https://github.com/rungeard/dify_ovh_ai_endpoints
+- Contact: https://github.com/rungeard/dify_ovh_ai_endpoints/issues
+- Privacy policy: `./PRIVACY.md`
+
+### Packaging for submission
+
+Use the package naming convention required for marketplace workflows:
+
+- `ovh_ai_endpoints-0.0.1.difypkg`
