@@ -44,12 +44,6 @@ parameter_rules:
       - low
       - medium
       - high
-  - name: exclude_reasoning_tokens
-    label:
-      en_US: Hide reasoning content
-    type: boolean
-    required: false
-    default: false
 pricing:
   input: "0.08"
   output: "0.40"

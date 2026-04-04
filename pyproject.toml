@@ -1,14 +1,15 @@
 [project]
 name = "ovh-ai-endpoints"
-version = "0.0.1"
+version = "1.0.0"
 description = "Dify model provider for OVH AI Endpoints"
 readme = "README.md"
 requires-python = ">=3.12"
 
 # uv pip compile pyproject.toml -o ./requirements.txt
 dependencies = [
-    "dify_plugin==0.7.2",
-    "openai==2.3.0",
+    "dify-plugin==0.7.4",
+    "httpx==0.28.1",
+    "pydub==0.25.1",
 ]
 
 # uv run black . -C -l 100

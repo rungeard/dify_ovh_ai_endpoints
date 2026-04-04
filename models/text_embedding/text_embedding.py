@@ -1,11 +1,9 @@
-from typing import Mapping, Optional, Union
-import ipaddress
+from typing import Mapping, Optional
 import json
 import re
 import logging
-from urllib.parse import urlparse
 
-import requests
+import httpx
 import tiktoken
 
 from dify_plugin.entities.model import (
@@ -22,6 +20,7 @@ from dify_plugin.errors.model import InvokeError, InvokeServerUnavailableError
 from dify_plugin.interfaces.model.openai_compatible.text_embedding import (
     OAICompatEmbeddingModel,
 )
+from models.ovh_errors import format_ovh_rate_limit_error
 from models.ovh_credentials import build_ovh_credentials
 
 
@@ -59,8 +58,8 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         """
         Invoke text embedding model with multimodal support
 
-        Supports both text-only and multimodal (text + image) inputs.
-        When vision_support is enabled, texts can contain JSON with "text" and "image" fields.
+        Supports text inputs and degrades image references to text markers when
+        vision-style input is provided.
 
         :param model: model name
         :param credentials: model credentials
@@ -74,10 +73,10 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         vision_support = credentials.get("vision_support", "no_support")
 
         # Process inputs - convert to multimodal format if needed
-        processed_inputs = []
-        for text in texts:
-            processed = self._process_input(text, vision_support == "support")
-            processed_inputs.append(processed)
+        processed_inputs = [
+            self._process_input(text, vision_support == "support")
+            for text in texts
+        ]
 
         # Apply prefix
         prefix = self._get_prefix(credentials, input_type)
@@ -88,23 +87,9 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         context_size = self._get_context_size(model, credentials)
         max_chunks = self._get_max_chunks(model, credentials)
 
-        # Truncate long texts (similar to Tongyi's approach)
+        # Truncate long texts to fit the embedding context window.
         inputs = []
-        for input_data in processed_inputs:
-            if isinstance(input_data, list):
-                # Multimodal - convert to text first
-                text_parts = []
-                for content in input_data:
-                    if content.get("type") == "text":
-                        text_parts.append(content.get("text", ""))
-                    elif content.get("type") == "image_url":
-                        text_parts.append(
-                            f"[Image: {content.get('image_url', {}).get('url', '')}]"
-                        )
-                text = " ".join(text_parts) if text_parts else ""
-            else:
-                text = input_data if isinstance(input_data, str) else str(input_data)
-
+        for text in processed_inputs:
             # Check token count and truncate if necessary
             num_tokens = self._get_num_tokens_by_gpt2(text)
             if num_tokens >= context_size:
@@ -135,7 +120,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}" if api_key else "",
+            "Authorization": f"Bearer {api_key}",
         }
 
         batched_embeddings = []
@@ -162,11 +147,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
                 if encoding_format:
                     payload["encoding_format"] = encoding_format
 
-                logger.info(
-                    f"Embedding API Request to {endpoint_url}/embeddings (batch {i // max_chunks + 1}/{(len(inputs) + max_chunks - 1) // max_chunks})"
-                )
-
-                response = requests.post(
+                response = httpx.post(
                     f"{endpoint_url}/embeddings",
                     headers=headers,
                     json=payload,
@@ -175,9 +156,11 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
 
                 # Debug: log response on error
                 if response.status_code != 200:
+                    error_body = format_ovh_rate_limit_error(response.status_code, response.text, api_key)
                     logger.error(
-                        f"Embedding API Error {response.status_code}: {response.text[:1000]}"
+                        f"Embedding API Error {response.status_code}: {error_body}"
                     )
+                    raise InvokeError(error_body)
 
                 response.raise_for_status()
 
@@ -217,18 +200,18 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
                 ),
             )
 
-        except requests.exceptions.RequestException as ex:
+        except httpx.HTTPError as ex:
             raise InvokeServerUnavailableError(str(ex))
         except Exception as ex:
             raise InvokeError(str(ex))
 
-    def _process_input(self, text: str, vision_enabled: bool) -> Union[str, list]:
+    def _process_input(self, text: str, vision_enabled: bool) -> str:
         """
-        Process input text, detecting and handling multimodal content.
+        Normalize input to plain text before calling the embedding endpoint.
 
-        :param text: input text which may contain JSON with image data
-        :param vision_enabled: whether vision support is enabled
-        :return: processed content (str or list) for API
+        The OVH embedding endpoint used by this provider is text-oriented.
+        When Dify sends vision-style content, image references are preserved as
+        textual markers instead of being forwarded as multimodal payloads.
         """
         if not vision_enabled:
             return text
@@ -242,244 +225,35 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
             pass
 
         # Try to detect markdown image syntax: ![desc](url)
-        if vision_enabled:
-            content = self._extract_markdown_images(text)
-            if content != text:
-                return content
+        content = self._extract_markdown_images(text)
+        if content != text:
+            return content
 
         # Try to detect plain image URLs
-        if vision_enabled and self._is_image_url(text):
-            return [{"type": "image_url", "image_url": {"url": text}}]
+        if self._is_image_url(text):
+            return self._format_image_reference(text)
 
         return text
 
-    def _format_multimodal_content(self, data: dict) -> Union[str, list]:
+    def _format_multimodal_content(self, data: dict) -> str:
         """
-        Format multimodal content dict to OpenAI API format.
+        Format a simple multimodal-like dict into plain text.
 
         Expected format: {"text": "...", "image": "url_or_path"}
         """
-        content = []
+        parts: list[str] = []
+        if data.get("text"):
+            parts.append(str(data["text"]))
+        if data.get("image"):
+            parts.append(self._format_image_reference(str(data["image"])))
+        return " ".join(part for part in parts if part).strip()
 
-        # Add image if present
-        if "image" in data and data["image"]:
-            image_url = self._process_image_url(data["image"])
-            if image_url:
-                content.append({"type": "image_url", "image_url": {"url": image_url}})
-
-        # Add text if present
-        if "text" in data and data["text"]:
-            content.append({"type": "text", "text": data["text"]})
-
-        return content if content else data.get("text", "")
-
-    def _validate_image_url(self, url: str) -> str:
+    def _extract_markdown_images(self, text: str) -> str:
         """
-        Validate image URL to prevent SSRF attacks.
-        Only allows http, https, and data:image URLs.
-        Blocks localhost, private IPs, and internal networks.
-
-        :param url: URL to validate
-        :return: Validated URL or empty string if invalid
+        Replace markdown image syntax with a plain text marker.
         """
-        if not url:
-            return ""
-
-        # Allow data URIs (base64 encoded images)
-        if url.startswith("data:image"):
-            return url
-
-        # Only allow http/https URLs
-        if not (url.startswith("http://") or url.startswith("https://")):
-            logger.warning(f"Blocked non-HTTP URL: {url[:50]}...")
-            return ""
-
-        # Parse URL to check for SSRF attempts
-        try:
-            parsed = urlparse(url)
-            hostname = parsed.hostname
-
-            if not hostname:
-                return ""
-
-            # Block localhost
-            if hostname in ("localhost", "127.0.0.1", "::1"):
-                logger.warning(f"Blocked localhost URL: {url[:50]}...")
-                return ""
-
-            # Block private IP ranges
-            try:
-                ip = ipaddress.ip_address(hostname)
-                # Check if it's private, loopback, link-local, or reserved
-                if (
-                    ip.is_private
-                    or ip.is_loopback
-                    or ip.is_link_local
-                    or ip.is_reserved
-                ):
-                    logger.warning(f"Blocked private IP URL: {url[:50]}...")
-                    return ""
-            except ValueError:
-                # Not an IP address, it's a hostname - allow it
-                pass
-
-            return url
-        except Exception as e:
-            logger.warning(f"URL validation failed: {e}")
-            return ""
-
-            # Block localhost
-            if hostname in ("localhost", "127.0.0.1", "::1"):
-                logger.warning(f"Blocked localhost URL: {url[:50]}...")
-                return ""
-
-            # Block private IP ranges
-            import ipaddress
-
-            try:
-                ip = ipaddress.ip_address(hostname)
-                # Check if it's private, loopback, link-local, or reserved
-                if (
-                    ip.is_private
-                    or ip.is_loopback
-                    or ip.is_link_local
-                    or ip.is_reserved
-                ):
-                    logger.warning(f"Blocked private IP URL: {url[:50]}...")
-                    return ""
-            except ValueError:
-                # Not an IP address, it's a hostname - allow it
-                pass
-
-            return url
-        except Exception as e:
-            logger.warning(f"URL validation failed: {e}")
-            return ""
-
-    def _process_image_url(self, image: str) -> str:
-        """
-        Process image URL securely.
-
-        Supports:
-        - HTTP/HTTPS URLs (with SSRF protection)
-        - Base64 data URIs (with or without prefix)
-
-        Security: Blocks file:// URLs, localhost, and private networks.
-        """
-        if not image:
-            return ""
-
-        # Check if it's already a data URI
-        if image.startswith("data:image"):
-            return image
-
-        # Validate and process HTTP/HTTPS URLs
-        if image.startswith(("http://", "https://")):
-            return self._validate_image_url(image)
-
-        # Check if it's a base64 encoded image (without data URI prefix)
-        if self._is_base64_image(image):
-            image_format = self._detect_image_format_from_base64(image)
-            return f"data:image/{image_format};base64,{image}"
-
-        # Reject file:// URLs and local paths (security risk)
-        logger.warning(f"Blocked local file path: {image[:50]}...")
-        return ""
-
-    def _is_base64_image(self, text: str) -> bool:
-        """
-        Check if text is a base64 encoded image (without data URI prefix).
-
-        :param text: text to check
-        :return: True if it's a base64 image string
-        """
-        import base64
-
-        if not text or len(text) < 100:
-            return False
-
-        # Remove potential data URI prefix if present
-        if "," in text:
-            text = text.split(",", 1)[1]
-
-        try:
-            # Try to decode as base64
-            decoded = base64.b64decode(text, validate=True)
-            # Check if it looks like an image (at least 100 bytes)
-            return len(decoded) > 100
-        except Exception:
-            return False
-
-    def _detect_image_format_from_base64(self, base64_str: str) -> str:
-        """
-        Detect image format from base64 string by checking magic bytes.
-
-        :param base64_str: base64 encoded image string
-        :return: image format (jpeg, png, gif, webp, bmp)
-        """
-        import base64
-
-        # Remove data URI prefix if present
-        if "," in base64_str:
-            base64_str = base64_str.split(",", 1)[1]
-
-        try:
-            data = base64.b64decode(base64_str, validate=True)
-
-            # Check magic bytes
-            if data.startswith(b"\xff\xd8\xff"):
-                return "jpeg"
-            elif data.startswith(b"\x89PNG\r\n\x1a\n"):
-                return "png"
-            elif data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
-                return "gif"
-            elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-                return "webp"
-            elif data.startswith(b"BM"):
-                return "bmp"
-            else:
-                # Default to jpeg if unknown
-                return "jpeg"
-        except Exception:
-            return "jpeg"
-
-    def _extract_markdown_images(self, text: str) -> Union[str, list]:
-        """
-        Extract markdown image syntax: ![description](url)
-
-        :param text: text potentially containing markdown images
-        :return: processed content
-        """
-        # Pattern to match markdown images
         pattern = r"!\[([^\]]*)\]\(([^\)]+)\)"
-
-        matches = list(re.finditer(pattern, text))
-        if not matches:
-            return text
-
-        content = []
-        last_end = 0
-
-        for match in matches:
-            # Add text before image
-            if match.start() > last_end:
-                text_part = text[last_end : match.start()].strip()
-                if text_part:
-                    content.append({"type": "text", "text": text_part})
-
-            # Add image
-            image_url = match.group(2)
-            content.append({"type": "image_url", "image_url": {"url": image_url}})
-
-            last_end = match.end()
-
-        # Add remaining text
-        if last_end < len(text):
-            text_part = text[last_end:].strip()
-            if text_part:
-                content.append({"type": "text", "text": text_part})
-
-        return content
+        return re.sub(pattern, lambda match: self._format_image_reference(match.group(2)), text)
 
     def _is_image_url(self, text: str) -> bool:
         """Check if text is an image URL."""
@@ -488,21 +262,17 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
             text.lower().endswith(ext) for ext in image_extensions
         )
 
-    def _add_prefix_to_inputs(self, inputs: list, prefix: str) -> list:
-        """Add prefix to text inputs."""
-        result = []
-        for item in inputs:
-            if isinstance(item, str):
-                result.append(f"{prefix} {item}")
-            elif isinstance(item, list):
-                # It's a multimodal content list
-                for content in item:
-                    if content.get("type") == "text":
-                        content["text"] = f"{prefix} {content['text']}"
-                result.append(item)
-            else:
-                result.append(item)
-        return result
+    @staticmethod
+    def _format_image_reference(image: str) -> str:
+        image = image.strip()
+        if image.startswith("data:image"):
+            return "[Image: embedded data URI]"
+        return f"[Image: {image}]"
+
+    @staticmethod
+    def _add_prefix_to_inputs(inputs: list[str], prefix: str) -> list[str]:
+        """Add a textual prefix to each embedding input."""
+        return [f"{prefix} {item}" for item in inputs]
 
     def _get_prefix(self, credentials: dict, input_type: EmbeddingInputType) -> str:
         if input_type == EmbeddingInputType.DOCUMENT:
@@ -528,36 +298,3 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
             return (
                 len(text) // 4
             )  # Rough estimate if tiktoken is not available or fails
-
-    def _invoke_multimodal(
-        self,
-        model: str,
-        credentials: dict,
-        inputs: list,
-        user: Optional[str] = None,
-        input_type: EmbeddingInputType = EmbeddingInputType.DOCUMENT,
-    ) -> TextEmbeddingResult:
-        """
-        Invoke embedding model with potentially multimodal inputs.
-        This method delegates to _invoke for processing.
-        """
-        # Convert inputs back to texts format and use _invoke
-        texts = []
-        for input_data in inputs:
-            if isinstance(input_data, list):
-                # Multimodal - convert to text
-                text_parts = []
-                for content in input_data:
-                    if content.get("type") == "text":
-                        text_parts.append(content.get("text", ""))
-                    elif content.get("type") == "image_url":
-                        text_parts.append(
-                            f"[Image: {content.get('image_url', {}).get('url', '')}]"
-                        )
-                texts.append(" ".join(text_parts) if text_parts else "")
-            else:
-                texts.append(
-                    input_data if isinstance(input_data, str) else str(input_data)
-                )
-
-        return self._invoke(model, credentials, texts, user, input_type)

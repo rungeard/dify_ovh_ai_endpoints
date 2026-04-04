@@ -3,10 +3,43 @@ label:
   en_US: nvr-tts-en-us
 model_type: tts
 model_properties:
-  default_voice: "default"
+  default_voice: "English-US.Female-1"
   voices:
-    - mode: "default"
-      name: "Default"
+    - mode: "English-US.Female-1"
+      name: "English US Female 1"
+      language: ["en-US"]
+    - mode: "English-US.Male-1"
+      name: "English US Male 1"
+      language: ["en-US"]
+    - mode: "English-US.Female-Calm"
+      name: "English US Female Calm"
+      language: ["en-US"]
+    - mode: "English-US.Female-Neutral"
+      name: "English US Female Neutral"
+      language: ["en-US"]
+    - mode: "English-US.Female-Happy"
+      name: "English US Female Happy"
+      language: ["en-US"]
+    - mode: "English-US.Female-Angry"
+      name: "English US Female Angry"
+      language: ["en-US"]
+    - mode: "English-US.Female-Fearful"
+      name: "English US Female Fearful"
+      language: ["en-US"]
+    - mode: "English-US.Female-Sad"
+      name: "English US Female Sad"
+      language: ["en-US"]
+    - mode: "English-US.Male-Calm"
+      name: "English US Male Calm"
+      language: ["en-US"]
+    - mode: "English-US.Male-Neutral"
+      name: "English US Male Neutral"
+      language: ["en-US"]
+    - mode: "English-US.Male-Happy"
+      name: "English US Male Happy"
+      language: ["en-US"]
+    - mode: "English-US.Male-Angry"
+      name: "English US Male Angry"
       language: ["en-US"]
   word_limit: 3500
   audio_type: "mp3"
