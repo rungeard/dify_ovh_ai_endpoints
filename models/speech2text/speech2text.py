@@ -26,11 +26,8 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
         :return: text for given audio file
         """
         credentials = build_ovh_credentials(credentials)
-        headers = {}
-
         api_key = credentials.get("api_key")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = {"Authorization": f"Bearer {api_key}"}
 
         endpoint_url = credentials.get("endpoint_url", "https://api.openai.com/v1/")
         if not endpoint_url.endswith("/"):

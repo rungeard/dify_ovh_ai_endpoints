@@ -3,3 +3,4 @@ uv.lock
 .idea
 __pycache__/
 .env
+dist/

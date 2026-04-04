@@ -28,9 +28,9 @@ provider_credential_schema:
       label:
         en_US: API Key
       type: secret-input
-      required: false
+      required: true
       placeholder:
-        en_US: Optional OVH AI Endpoints API key
+        en_US: OVH AI Endpoints API key
 models:
   llm:
     position: models/llm/_position.yaml

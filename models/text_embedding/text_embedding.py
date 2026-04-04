@@ -120,7 +120,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}" if api_key else "",
+            "Authorization": f"Bearer {api_key}",
         }
 
         batched_embeddings = []

@@ -27,15 +27,10 @@ class OVHAIEndpointsProvider(ModelProvider):
 
         api_key = str(normalized_credentials.get("api_key") or "").strip()
         if not api_key:
-            # OVH supports anonymous inference on public endpoints with a low rate limit.
-            # Skip provider-level validation here because `/v1/models` may not be publicly
-            # accessible anonymously even when inference endpoints are.
-            return
+            raise CredentialsValidateFailedError("Missing required credential: api_key.")
 
         models_url = urljoin(f"{endpoint_url}/", "models")
-        headers = {}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = {"Authorization": f"Bearer {api_key}"}
 
         try:
             response = httpx.get(models_url, headers=headers, timeout=self._VALIDATE_TIMEOUT)

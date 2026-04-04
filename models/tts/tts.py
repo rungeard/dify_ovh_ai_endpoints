@@ -101,9 +101,9 @@ class OpenAIText2SpeechModel(TTSModel):
         headers = {
             "accept": "application/octet-stream",
             "Content-Type": "application/json",
+            "Authorization": f"Bearer {credentials.get('api_key')}",
         }
-        if api_key := credentials.get("api_key"):
-            headers["Authorization"] = f"Bearer {api_key}"
+        api_key = credentials.get("api_key")
 
         try:
             with httpx.Client(timeout=120.0) as client:

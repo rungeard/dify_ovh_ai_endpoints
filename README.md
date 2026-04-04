@@ -8,7 +8,7 @@ This provider is configured for OVH AI Endpoints with a predefined model catalog
 
 Only credentials:
 
-- `api_key` (optional)
+- `api_key` (required)
 
 No endpoint URL is required in UI. The OVH OpenAI-compatible base URL is injected automatically for LLM, moderation, embeddings, and speech-to-text. TTS uses OVH native per-model endpoints.
 
@@ -59,7 +59,6 @@ Reference date: 2026-03-31.
 
 ### Notes
 
-- Anonymous OVH access is supported. Without an API key, OVH applies a rate limit of 2 requests per minute, per IP and per model.
 - For TTS, OVH currently returns WAV from its native endpoint and the plugin converts it to MP3 before returning it to Dify.
 - Chrome is known to play the current TTS path correctly. Firefox may fail in Dify UI depending on browser MediaSource support for the MIME used by the frontend.
 

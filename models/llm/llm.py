@@ -165,8 +165,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
 
         try:
             headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+            headers["Authorization"] = f"Bearer {api_key}"
 
             if mode == "chat":
                 endpoint = urljoin(endpoint_url.rstrip("/") + "/", "chat/completions")

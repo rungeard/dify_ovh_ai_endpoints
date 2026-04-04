@@ -19,9 +19,7 @@ def build_ovh_credentials(credentials: Mapping | dict | None) -> dict:
         endpoint_url = f"{endpoint_url}/v1"
     normalized["endpoint_url"] = endpoint_url
 
-    api_key = str(normalized.get("api_key") or "").strip()
-    if api_key:
-        normalized["api_key"] = api_key
+    normalized["api_key"] = str(normalized.get("api_key") or "").strip()
 
     # OAICompatLargeLanguageModel expects `credentials["mode"]` to exist.
     # Provider-level credentials only include `api_key`, so default to chat.

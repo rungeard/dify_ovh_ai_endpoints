@@ -21,10 +21,11 @@ class OVHModerationModel(ModerationModel):
         endpoint_url = credentials.get("endpoint_url", "").rstrip("/")
         endpoint_url = urljoin(f"{endpoint_url}/", "chat/completions")
 
-        headers = {"Content-Type": "application/json"}
         api_key = credentials.get("api_key")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
 
         payload = {
             "model": credentials.get("endpoint_model_name", model),
