@@ -1,14 +1,12 @@
-import logging
 from collections.abc import Mapping
 from urllib.parse import urljoin
 
-import requests
+import httpx
 from dify_plugin import ModelProvider
 from dify_plugin.errors.model import CredentialsValidateFailedError
 
 from models.ovh_credentials import build_ovh_credentials
-
-logger = logging.getLogger(__name__)
+from models.ovh_errors import format_ovh_rate_limit_error
 
 
 class OVHAIEndpointsProvider(ModelProvider):
@@ -23,24 +21,29 @@ class OVHAIEndpointsProvider(ModelProvider):
         """
         normalized_credentials = build_ovh_credentials(credentials)
 
-        api_key = str(normalized_credentials.get("api_key") or "").strip()
-        if not api_key:
-            raise CredentialsValidateFailedError("Missing required credential: api_key.")
-
         endpoint_url = str(normalized_credentials.get("endpoint_url") or "").rstrip("/")
         if not endpoint_url:
             raise CredentialsValidateFailedError("Missing endpoint URL after credential normalization.")
 
+        api_key = str(normalized_credentials.get("api_key") or "").strip()
+        if not api_key:
+            # OVH supports anonymous inference on public endpoints with a low rate limit.
+            # Skip provider-level validation here because `/v1/models` may not be publicly
+            # accessible anonymously even when inference endpoints are.
+            return
+
         models_url = urljoin(f"{endpoint_url}/", "models")
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         try:
-            response = requests.get(models_url, headers=headers, timeout=self._VALIDATE_TIMEOUT)
-        except requests.exceptions.Timeout as ex:
+            response = httpx.get(models_url, headers=headers, timeout=self._VALIDATE_TIMEOUT)
+        except httpx.TimeoutException as ex:
             raise CredentialsValidateFailedError(
                 f"Credentials validation timed out while calling {models_url}."
             ) from ex
-        except requests.exceptions.RequestException as ex:
+        except httpx.HTTPError as ex:
             raise CredentialsValidateFailedError(
                 f"Credentials validation failed to reach OVH endpoint: {ex!s}"
             ) from ex
@@ -51,7 +54,8 @@ class OVHAIEndpointsProvider(ModelProvider):
             raise CredentialsValidateFailedError("API key does not have permission for OVH endpoint (403 Forbidden).")
         if response.status_code >= 400:
             raise CredentialsValidateFailedError(
-                f"Credentials validation failed with status {response.status_code}: {response.text[:500]}"
+                "Credentials validation failed with status "
+                f"{response.status_code}: {format_ovh_rate_limit_error(response.status_code, response.text, api_key)}"
             )
 
         try:

@@ -16,6 +16,7 @@ help:
 background: "#0050D7"
 supported_model_types:
   - llm
+  - moderation
   - text-embedding
   - speech2text
   - tts
@@ -27,14 +28,18 @@ provider_credential_schema:
       label:
         en_US: API Key
       type: secret-input
-      required: true
+      required: false
       placeholder:
-        en_US: Enter your OVH AI Endpoints API key
+        en_US: Optional OVH AI Endpoints API key
 models:
   llm:
     position: models/llm/_position.yaml
     predefined:
       - "models/llm/*.yaml"
+  moderation:
+    position: models/moderation/_position.yaml
+    predefined:
+      - "models/moderation/*.yaml"
   text_embedding:
     predefined:
       - "models/text_embedding/*.yaml"
@@ -49,6 +54,7 @@ extra:
     provider_source: provider/ovh_ai_endpoints.py
     model_sources:
       - "models/llm/llm.py"
+      - "models/moderation/moderation.py"
       - "models/text_embedding/text_embedding.py"
       - "models/speech2text/speech2text.py"
       - "models/tts/tts.py"

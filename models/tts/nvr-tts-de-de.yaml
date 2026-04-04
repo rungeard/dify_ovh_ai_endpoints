@@ -3,10 +3,10 @@ label:
   en_US: nvr-tts-de-de
 model_type: tts
 model_properties:
-  default_voice: "default"
+  default_voice: "German-DE.Male-1"
   voices:
-    - mode: "default"
-      name: "Default"
+    - mode: "German-DE.Male-1"
+      name: "German DE Male 1"
       language: ["de-DE"]
   word_limit: 3500
   audio_type: "mp3"

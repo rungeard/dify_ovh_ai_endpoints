@@ -4,7 +4,7 @@ from contextlib import suppress
 from typing import Mapping, Optional, Union, Generator, List
 from urllib.parse import urljoin
 
-import requests
+import httpx
 from dify_plugin.entities.model import (
     AIModelEntity,
     DefaultParameterName,
@@ -16,15 +16,12 @@ from dify_plugin.entities.model import (
 from dify_plugin.entities.model.llm import LLMMode, LLMResult
 from dify_plugin.entities.model.message import (
     PromptMessage,
-    PromptMessageRole,
     PromptMessageTool,
-    SystemPromptMessage,
     AssistantPromptMessage,
 )
 from dify_plugin.errors.model import CredentialsValidateFailedError
 from dify_plugin.interfaces.model.openai_compatible.llm import OAICompatLargeLanguageModel
 
-from openai import OpenAI
 from models.ovh_credentials import build_ovh_credentials
 
 
@@ -35,6 +32,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
     _NEEDS_MAX_COMPLETION_TOKENS_PATTERN = re.compile(r"^(o1|o3|gpt-5)", re.IGNORECASE)
     _OVH_ALLOWED_CHAT_PARAMETERS = {
         "frequency_penalty",
+        "json_schema",
         "logit_bias",
         "logprobs",
         "max_completion_tokens",
@@ -55,6 +53,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         "best_of",
         "echo",
         "frequency_penalty",
+        "json_schema",
         "logprobs",
         "max_tokens",
         "n",
@@ -69,8 +68,8 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
     def _wrap_thinking_by_reasoning_content(self, delta: dict, is_reasoning: bool) -> tuple[str, bool]:
         """
         Override base wrapper to support both legacy 'reasoning_content' and
-        newer 'reasoning' fields (e.g., vLLM >= 0.17.1), emitting <think> blocks
-        compatible with Dify's downstream filters.
+        newer 'reasoning' fields, emitting <think> blocks compatible with
+        Dify's downstream filters.
         """
         # Prefer the new key when present, otherwise fall back to legacy
         reasoning_piece = delta.get("reasoning") or delta.get("reasoning_content")
@@ -102,7 +101,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         return bool(OpenAILargeLanguageModel._NEEDS_MAX_COMPLETION_TOKENS_PATTERN.match(m))
 
     @staticmethod
-    def _raise_credentials_error(response: requests.Response) -> None:
+    def _raise_credentials_error(response: httpx.Response) -> None:
         """Raise a CredentialsValidateFailedError with response details."""
         raise CredentialsValidateFailedError(
             f"Credentials validation failed with status code {response.status_code} "
@@ -116,9 +115,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         2) If it fails due to too-small token floor on Responses API
            (e.g., "Invalid 'max_output_tokens' ... integer_below_min_value"),
            retry once with a safe minimum of 16 using the appropriate endpoint/param.
-        3) If it fails due to thinking/budget_tokens requirements
-           (e.g., Poe API requiring budget_tokens for Claude models),
-           retry with thinking explicitly disabled.
         """
         credentials = build_ovh_credentials(credentials)
         # When max_completion_tokens is explicitly requested, validate directly
@@ -156,9 +152,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             raise CredentialsValidateFailedError("Missing endpoint_url in credentials")
 
         api_key = credentials.get("api_key")
-        extra_headers = credentials.get("extra_headers") or {}
-        client = OpenAI(api_key=api_key, base_url=endpoint_url, default_headers=extra_headers)
-
         endpoint_model = credentials.get("endpoint_model_name") or model
         mode = credentials.get("mode", "chat")
 
@@ -171,77 +164,35 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         SAFE_MIN_TOKENS = 16
 
         try:
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
             if mode == "chat":
+                endpoint = urljoin(endpoint_url.rstrip("/") + "/", "chat/completions")
+                payload = {
+                    "model": endpoint_model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "stream": False,
+                }
                 if use_max_completion:
-                    client.chat.completions.create(
-                        model=endpoint_model,
-                        messages=[{"role": "user", "content": "ping"}],
-                        max_completion_tokens=SAFE_MIN_TOKENS,
-                        stream=False,
-                    )
+                    payload["max_completion_tokens"] = SAFE_MIN_TOKENS
                 else:
-                    client.chat.completions.create(
-                        model=endpoint_model,
-                        messages=[{"role": "user", "content": "ping"}],
-                        max_tokens=SAFE_MIN_TOKENS,
-                        stream=False,
-                    )
+                    payload["max_tokens"] = SAFE_MIN_TOKENS
             else:
-                client.completions.create(
-                    model=endpoint_model,
-                    prompt="ping",
-                    max_tokens=SAFE_MIN_TOKENS,
-                    stream=False,
-                )
-        except Exception as sub_e:
-            raise CredentialsValidateFailedError(str(sub_e)) from sub_e
+                endpoint = urljoin(endpoint_url.rstrip("/") + "/", "completions")
+                payload = {
+                    "model": endpoint_model,
+                    "prompt": "ping",
+                    "max_tokens": SAFE_MIN_TOKENS,
+                    "stream": False,
+                }
 
-    def _retry_with_thinking_disabled(self, model: str, credentials: dict) -> None:
-        """Retry validation with thinking explicitly disabled for APIs
-        that enforce thinking-mode parameters (e.g., Poe API)."""
-        headers = {"Content-Type": "application/json"}
-
-        api_key = credentials.get("api_key")
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        endpoint_url = credentials["endpoint_url"]
-        if not endpoint_url.endswith("/"):
-            endpoint_url += "/"
-
-        # The `or 5` fallback handles cases where the credential value is set
-        # but empty (e.g., "" or None from user input).
-        validate_max_tokens = int(credentials.get("validate_credentials_max_tokens", 5) or 5)
-        data: dict = {
-            "model": credentials.get("endpoint_model_name", model),
-            "max_tokens": validate_max_tokens,
-            "thinking": {"type": "disabled"},
-        }
-
-        completion_type = LLMMode.value_of(credentials["mode"])
-
-        if completion_type is LLMMode.CHAT:
-            data["messages"] = [{"role": "user", "content": "ping"}]
-            endpoint_url = urljoin(endpoint_url, "chat/completions")
-        elif completion_type is LLMMode.COMPLETION:
-            data["prompt"] = "ping"
-            endpoint_url = urljoin(endpoint_url, "completions")
-        else:
-            raise ValueError("Unsupported completion type for model configuration.")
-
-        try:
-            response = requests.post(
-                endpoint_url, headers=headers, json=data,
-                timeout=self._VALIDATE_TIMEOUT,
-            )
+            response = httpx.post(endpoint, headers=headers, json=payload, timeout=self._VALIDATE_TIMEOUT)
             if response.status_code != 200:
                 self._raise_credentials_error(response)
-        except CredentialsValidateFailedError:
-            raise
-        except Exception as ex:
-            raise CredentialsValidateFailedError(
-                f"An error occurred during credentials validation: {ex!s}"
-            ) from ex
+        except Exception as sub_e:
+            raise CredentialsValidateFailedError(str(sub_e)) from sub_e
 
     def get_customizable_model_schema(
         self, model: str, credentials: Mapping | dict
@@ -295,43 +246,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
 
         if "display_name" in credentials and credentials["display_name"] != "":
             entity.label = I18nObject(en_US=credentials["display_name"])
-
-        # Configure thinking mode parameter based on model support
-        agent_thought_support = credentials.get("agent_thought_support", "not_supported")
-        
-        # Add AGENT_THOUGHT feature if thinking mode is supported (either mode)
-        if agent_thought_support in ["supported", "only_thinking_supported"] and ModelFeature.AGENT_THOUGHT not in entity.features:
-            entity.features.append(ModelFeature.AGENT_THOUGHT)
-        
-        # Only add the enable_thinking parameter if the model supports both modes
-        # If only_thinking_supported, the parameter is not needed (forced behavior)
-        if agent_thought_support == "supported":
-            entity.parameter_rules.append(
-                ParameterRule(
-                    name="enable_thinking",
-                    label=I18nObject(en_US="Thinking mode"),
-                    help=I18nObject(
-                        en_US="Whether to enable thinking mode, applicable to various thinking mode models deployed on reasoning frameworks such as vLLM and SGLang, for example Qwen3.",
-                    ),
-                    type=ParameterType.BOOLEAN,
-                    required=False,
-                )
-            )
-
-        if agent_thought_support in ["supported", "only_thinking_supported"]:
-            entity.parameter_rules.append(
-                ParameterRule(
-                    name="reasoning_effort",
-                    label=I18nObject(en_US="Reasoning effort"),
-                    help=I18nObject(
-                        en_US="Constrains effort on reasoning for reasoning models.",
-                    ),
-                    type=ParameterType.STRING,
-                    options=["low", "medium", "high"],
-                    required=False,
-                )
-            )
-        
         return entity
 
     @classmethod
@@ -376,6 +290,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         credentials = build_ovh_credentials(credentials)
         schema = self.get_model_schema(model, credentials)
         model_parameters = self._sanitize_model_parameters(schema, dict(model_parameters))
+        model_parameters = self._normalize_response_format(model_parameters)
         # OVH strict mode: keep only explicitly allowed API parameters.
         completion_type = LLMMode.value_of(credentials["mode"])
         if completion_type is LLMMode.CHAT:
@@ -385,72 +300,16 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         else:
             allowed_parameters = set()
         model_parameters = {k: v for k, v in model_parameters.items() if k in allowed_parameters}
-        if tools and not self._supports_tool_call(schema):
+        tool_count = len(tools) if tools else 0
+        supports_tool_call = self._supports_tool_call(schema)
+        if tools and not supports_tool_call:
             tools = None
-        # Compatibility adapter for Dify's 'json_schema' structured output mode.
-        # The base class does not natively handle the 'json_schema' parameter. This block
-        # translates it into a standard OpenAI-compatible request by:
-        # 1. Injecting the JSON schema directly into the system prompt to guide the model.
-        # This ensures models like gpt-4o produce the correct structured output.
-        if model_parameters.get("response_format") == "json_schema":
-            # Use .get() instead of .pop() for safety
-            json_schema_str = model_parameters.get("json_schema")
 
-            if json_schema_str:
-                structured_output_prompt = (
-                    "Your response must be a JSON object that validates against the following JSON schema, and nothing else.\n"
-                    f"JSON Schema: ```json\n{json_schema_str}\n```"
-                )
+        invoke_credentials = dict(credentials)
+        if tools and supports_tool_call:
+            invoke_credentials.setdefault("function_calling_type", "tool_call")
+            invoke_credentials.setdefault("stream_function_calling", "supported")
 
-                existing_system_prompt = next(
-                    (p for p in prompt_messages if p.role == PromptMessageRole.SYSTEM), None
-                )
-                if existing_system_prompt:
-                    existing_system_prompt.content = (
-                        structured_output_prompt + "\n\n" + existing_system_prompt.content
-                    )
-                else:
-                    prompt_messages.insert(0, SystemPromptMessage(content=structured_output_prompt))
-
-        # Handle thinking mode based on model support configuration
-        agent_thought_support = credentials.get("agent_thought_support", "not_supported")
-        enable_thinking_value = None
-        if agent_thought_support == "only_thinking_supported":
-            # Force enable thinking mode
-            enable_thinking_value = True
-        elif agent_thought_support == "not_supported":
-            # Force disable thinking mode
-            enable_thinking_value = False
-        else:
-            # Both modes supported - use user's preference
-            user_enable_thinking = model_parameters.pop("enable_thinking", None)
-            if user_enable_thinking is not None:
-                enable_thinking_value = bool(user_enable_thinking)
-
-        # OVH mode: never send non-standard compatibility extensions.
-        strict_compatibility_value: bool = True
-
-        if enable_thinking_value is not None and strict_compatibility_value is False:
-            # Only apply when `strict_compatibility_value` is False since
-            # `chat_template_kwargs` , `thinking` and `enable_thinking` are non-standard parameters.
-
-            chat_template_kwargs = model_parameters.setdefault("chat_template_kwargs", {})
-            # Support vLLM/SGLang format (chat_template_kwargs)
-            chat_template_kwargs["enable_thinking"] = enable_thinking_value
-            chat_template_kwargs["thinking"] = enable_thinking_value
-
-            # Support Zhipu AI API format (top-level thinking parameter)
-            # This allows compatibility with Zhipu's official API format: {"thinking": {"type": "enabled/disabled"}}
-            model_parameters["thinking"] = {
-                "type": "enabled" if enable_thinking_value else "disabled"
-            }
-
-            # Support top-level `enable_thinking` parameter
-            # This allows compatibility API format: {"enable_thinking": False/True}
-            model_parameters["enable_thinking"] = enable_thinking_value
-
-        model_parameters.pop("reasoning_effort", None)
-        
         # Remove thinking content from assistant messages for better performance.
         with suppress(Exception):
             self._drop_analyze_channel(prompt_messages)
@@ -472,71 +331,9 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
                 model_parameters["max_completion_tokens"] = model_parameters.pop("max_tokens")
 
         result = super()._invoke(
-            model, credentials, prompt_messages, model_parameters, tools, stop, stream, None
+            model, invoke_credentials, prompt_messages, model_parameters, tools, stop, stream, None
         )
-
-        # Filter thinking content from responses if thinking mode is disabled
-        # This is necessary for models like Minimax M2.1 that don't support server-side thinking control
-        if enable_thinking_value is False:
-            if stream:
-                return self._filter_thinking_stream(result)
-            else:
-                return self._filter_thinking_result(result)
-        
         return result
-
-    def _filter_thinking_result(self, result: LLMResult) -> LLMResult:
-        """Filter thinking content from non-streaming result"""
-        if result.message and result.message.content:
-            content = result.message.content
-            if isinstance(content, str) and content.startswith("<think>"):
-                filtered_content = self._THINK_PATTERN.sub("", content, count=1)
-                if filtered_content != content:
-                    result.message.content = filtered_content
-        return result
-
-    def _filter_thinking_stream(self, stream: Generator) -> Generator:
-        """Filter thinking content from streaming result"""
-        buffer = ""
-        in_thinking = False
-        thinking_started = False
-        
-        for chunk in stream:
-            if chunk.delta and chunk.delta.message and chunk.delta.message.content:
-                content = chunk.delta.message.content
-                buffer += content
-                
-                # Detect start of thinking block
-                if not thinking_started and buffer.startswith("<think>"):
-                    in_thinking = True
-                    thinking_started = True
-                    # Don't continue here - check for end tag in same iteration
-                
-                # Detect end of thinking block
-                if in_thinking and "</think>" in buffer:
-                    # Find the end of thinking block
-                    end_idx = buffer.find("</think>") + len("</think>")
-                    # Skip whitespace after </think>
-                    while end_idx < len(buffer) and buffer[end_idx].isspace():
-                        end_idx += 1
-                    # Remove thinking block and continue with remaining content
-                    buffer = buffer[end_idx:]
-                    in_thinking = False
-                    thinking_started = False
-                    # Yield remaining content if any
-                    if buffer:
-                        chunk.delta.message.content = buffer
-                        buffer = ""
-                        yield chunk
-                    continue
-                
-                # If not in thinking block, yield content
-                if not in_thinking:
-                    yield chunk
-                    buffer = ""
-            else:
-                # Yield chunks without content as-is
-                yield chunk
 
     @staticmethod
     def _supports_tool_call(schema: AIModelEntity | None) -> bool:
@@ -561,6 +358,27 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         if "max_tokens" in allowed:
             allowed.add("max_completion_tokens")
         return allowed
+
+    @staticmethod
+    def _normalize_response_format(model_parameters: dict) -> dict:
+        normalized = dict(model_parameters)
+        response_format = normalized.get("response_format")
+        json_schema = normalized.get("json_schema")
+
+        if response_format == "json_schema":
+            # Dify's LLM block decides whether a JSON schema is available.
+            # If none is provided, fall back to plain text instead of forwarding
+            # an invalid payload.
+            if not json_schema:
+                normalized.pop("response_format", None)
+                normalized.pop("json_schema", None)
+        elif response_format == "text":
+            normalized.pop("response_format", None)
+            normalized.pop("json_schema", None)
+        elif not response_format:
+            normalized.pop("json_schema", None)
+
+        return normalized
 
     def _sanitize_model_parameters(
         self,

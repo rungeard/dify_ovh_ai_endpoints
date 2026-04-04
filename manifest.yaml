@@ -1,4 +1,4 @@
-version: 0.0.1
+version: 1.0.0
 type: plugin
 author: "rungeard"
 name: "ovh_ai_endpoints"
@@ -17,6 +17,7 @@ resource:
     model:
       enabled: true
       llm: true
+      moderation: true
       text_embedding: true
       speech2text: true
       tts: true
@@ -24,7 +25,7 @@ plugins:
   models:
     - "provider/ovh_ai_endpoints.yaml"
 meta:
-  version: 0.0.1
+  version: 1.0.0
   arch:
     - "amd64"
     - "arm64"

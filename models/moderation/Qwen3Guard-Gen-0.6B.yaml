@@ -1,0 +1,10 @@
+model: Qwen3Guard-Gen-0.6B
+label:
+  en_US: Qwen3Guard-Gen-0.6B
+model_type: moderation
+model_properties: {}
+pricing:
+  input: "0"
+  output: "0"
+  unit: "0.000001"
+  currency: EUR

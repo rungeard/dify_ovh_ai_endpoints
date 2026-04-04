@@ -2,11 +2,12 @@ import logging
 from typing import IO, Optional
 from urllib.parse import urljoin
 
-import requests
+import httpx
 from dify_plugin.entities.model import AIModelEntity, FetchFrom, I18nObject, ModelType
 from dify_plugin.errors.model import InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
 from dify_plugin.interfaces.model.openai_compatible.speech2text import OAICompatSpeech2TextModel
 from models.ovh_credentials import build_ovh_credentials
+from models.ovh_errors import format_ovh_rate_limit_error
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +42,22 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
         payload = {"model": credentials.get("endpoint_model_name", model), "language": language, "prompt": prompt}
         files = [("file", file)]
         try:
-            response = requests.post(
+            response = httpx.post(
                 endpoint_url, headers=headers, data=payload, files=files, timeout=self._INVOKE_TIMEOUT
             )
-        except requests.exceptions.Timeout as ex:
+        except httpx.TimeoutException as ex:
             logger.error("STT request timed out for endpoint %s", endpoint_url)
             raise InvokeServerUnavailableError(
                 f"Speech-to-text request timed out while calling {endpoint_url}."
             ) from ex
-        except requests.exceptions.RequestException as ex:
+        except httpx.HTTPError as ex:
             logger.error("STT request failed for endpoint %s: %s", endpoint_url, ex)
             raise InvokeServerUnavailableError(
                 f"Speech-to-text request failed while calling {endpoint_url}: {ex!s}"
             ) from ex
 
         if response.status_code != 200:
-            error_body = response.text[:1000]
+            error_body = format_ovh_rate_limit_error(response.status_code, response.text, api_key)
             logger.error("STT API error %s: %s", response.status_code, error_body)
             raise InvokeBadRequestError(
                 f"Speech-to-text API returned status {response.status_code}: {error_body}"
