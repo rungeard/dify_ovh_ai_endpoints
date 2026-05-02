@@ -9,7 +9,7 @@ from dify_plugin import TTSModel
 from dify_plugin.entities.model import AIModelEntity, I18nObject, ModelPropertyKey
 from dify_plugin.errors.model import CredentialsValidateFailedError, InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
 from models.ovh_errors import format_ovh_rate_limit_error
-from models.ovh_credentials import build_ovh_credentials
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 
 _TTS_MODEL_CONFIG: dict[str, dict[str, Any]] = {
     "nvr-tts-en-us": {
@@ -100,8 +100,7 @@ class OpenAIText2SpeechModel(TTSModel):
 
         headers = {
             "accept": "application/octet-stream",
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {credentials.get('api_key')}",
+            **build_ovh_auth_headers(credentials.get("api_key")),
         }
         api_key = credentials.get("api_key")
 

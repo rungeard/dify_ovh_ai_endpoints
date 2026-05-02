@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Optional
 
 DEFAULT_OVH_ENDPOINT_URL = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
 
@@ -27,3 +28,15 @@ def build_ovh_credentials(credentials: Mapping | dict | None) -> dict:
     normalized["mode"] = mode or "chat"
 
     return normalized
+
+
+def build_ovh_auth_headers(api_key: str | None, content_type: Optional[str] = "application/json") -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if content_type:
+        headers["Content-Type"] = content_type
+
+    token = str(api_key or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    return headers

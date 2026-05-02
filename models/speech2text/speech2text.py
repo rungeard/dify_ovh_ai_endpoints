@@ -6,7 +6,7 @@ import httpx
 from dify_plugin.entities.model import AIModelEntity, FetchFrom, I18nObject, ModelType
 from dify_plugin.errors.model import InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
 from dify_plugin.interfaces.model.openai_compatible.speech2text import OAICompatSpeech2TextModel
-from models.ovh_credentials import build_ovh_credentials
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 from models.ovh_errors import format_ovh_rate_limit_error
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
         """
         credentials = build_ovh_credentials(credentials)
         api_key = credentials.get("api_key")
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = build_ovh_auth_headers(api_key, content_type=None)
 
         endpoint_url = credentials.get("endpoint_url", "https://api.openai.com/v1/")
         if not endpoint_url.endswith("/"):

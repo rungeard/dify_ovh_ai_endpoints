@@ -5,9 +5,9 @@ from urllib.parse import urljoin
 import httpx
 
 from dify_plugin.entities.model import AIModelEntity, FetchFrom, I18nObject, ModelType
-from dify_plugin.errors.model import CredentialsValidateFailedError, InvokeBadRequestError, InvokeServerUnavailableError
+from dify_plugin.errors.model import CredentialsValidateFailedError, InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
 from dify_plugin.interfaces.model.moderation_model import ModerationModel
-from models.ovh_credentials import build_ovh_credentials
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 from models.ovh_errors import format_ovh_rate_limit_error
 
 _SAFETY_LABEL_PATTERN = re.compile(r"Safety:\s*(Safe|Unsafe|Controversial)", re.IGNORECASE)
@@ -22,10 +22,7 @@ class OVHModerationModel(ModerationModel):
         endpoint_url = urljoin(f"{endpoint_url}/", "chat/completions")
 
         api_key = credentials.get("api_key")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
+        headers = build_ovh_auth_headers(api_key)
 
         payload = {
             "model": credentials.get("endpoint_model_name", model),
@@ -80,3 +77,9 @@ class OVHModerationModel(ModerationModel):
             entity.label = I18nObject(en_US=credentials["display_name"])
 
         return entity
+
+    @property
+    def _invoke_error_mapping(self) -> dict[type[InvokeError], list[type[Exception]]]:
+        return {
+            InvokeServerUnavailableError: [Exception],
+        }

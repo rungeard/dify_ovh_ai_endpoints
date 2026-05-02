@@ -21,7 +21,7 @@ from dify_plugin.interfaces.model.openai_compatible.text_embedding import (
     OAICompatEmbeddingModel,
 )
 from models.ovh_errors import format_ovh_rate_limit_error
-from models.ovh_credentials import build_ovh_credentials
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 
 
 logger = logging.getLogger(__name__)
@@ -118,10 +118,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         endpoint_model_name = credentials.get("endpoint_model_name", "") or model
         max_chunks = self._get_max_chunks(model, credentials)
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
+        headers = build_ovh_auth_headers(api_key)
 
         batched_embeddings = []
         used_tokens = 0
