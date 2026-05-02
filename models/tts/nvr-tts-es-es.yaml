@@ -3,12 +3,12 @@ label:
   en_US: nvr-tts-es-es
 model_type: tts
 model_properties:
-  default_voice: "Spanish-ES.Female-1"
+  default_voice: "Spanish-ES-Female-1"
   voices:
-    - mode: "Spanish-ES.Female-1"
+    - mode: "Spanish-ES-Female-1"
       name: "Spanish ES Female 1"
       language: ["es-ES"]
-    - mode: "Spanish-ES.Male-1"
+    - mode: "Spanish-ES-Male-1"
       name: "Spanish ES Male 1"
       language: ["es-ES"]
   word_limit: 3500
