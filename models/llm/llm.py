@@ -67,12 +67,10 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
 
     def _wrap_thinking_by_reasoning_content(self, delta: dict, is_reasoning: bool) -> tuple[str, bool]:
         """
-        Override base wrapper to support both legacy 'reasoning_content' and
-        newer 'reasoning' fields, emitting <think> blocks compatible with
-        Dify's downstream filters.
+        Override base wrapper to support OVH `reasoning` deltas, emitting
+        <think> blocks compatible with Dify's downstream filters.
         """
-        # Prefer the new key when present, otherwise fall back to legacy
-        reasoning_piece = delta.get("reasoning") or delta.get("reasoning_content")
+        reasoning_piece = delta.get("reasoning") or ""
         content_piece = delta.get("content") or ""
 
         if reasoning_piece:
