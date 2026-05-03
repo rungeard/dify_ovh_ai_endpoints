@@ -1,7 +1,8 @@
-import json
 import re
+from collections.abc import Generator, Mapping
 from contextlib import suppress
-from typing import Mapping, Optional, Union, Generator, List
+from http import HTTPStatus
+from typing import ClassVar
 from urllib.parse import urljoin
 
 import httpx
@@ -15,9 +16,9 @@ from dify_plugin.entities.model import (
 )
 from dify_plugin.entities.model.llm import LLMMode, LLMResult
 from dify_plugin.entities.model.message import (
+    AssistantPromptMessage,
     PromptMessage,
     PromptMessageTool,
-    AssistantPromptMessage,
 )
 from dify_plugin.errors.model import CredentialsValidateFailedError
 from dify_plugin.interfaces.model.openai_compatible.llm import OAICompatLargeLanguageModel
@@ -30,42 +31,48 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
     _THINK_PATTERN = re.compile(r"^<think>.*?</think>\s*", re.DOTALL)
     # Models that require max_completion_tokens (OpenAI Responses API family)
     _NEEDS_MAX_COMPLETION_TOKENS_PATTERN = re.compile(r"^(o1|o3|gpt-5)", re.IGNORECASE)
-    _OVH_ALLOWED_CHAT_PARAMETERS = {
-        "frequency_penalty",
-        "json_schema",
-        "logit_bias",
-        "logprobs",
-        "max_completion_tokens",
-        "max_tokens",
-        "n",
-        "parallel_tool_calls",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p",
-    }
-    _OVH_ALLOWED_COMPLETION_PARAMETERS = {
-        "best_of",
-        "echo",
-        "frequency_penalty",
-        "json_schema",
-        "logprobs",
-        "max_tokens",
-        "n",
-        "presence_penalty",
-        "seed",
-        "stop",
-        "suffix",
-        "temperature",
-        "top_p",
-    }
+    _OVH_ALLOWED_CHAT_PARAMETERS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "frequency_penalty",
+            "json_schema",
+            "logit_bias",
+            "logprobs",
+            "max_completion_tokens",
+            "max_tokens",
+            "n",
+            "parallel_tool_calls",
+            "presence_penalty",
+            "response_format",
+            "seed",
+            "stop",
+            "temperature",
+            "tool_choice",
+            "tools",
+            "top_logprobs",
+            "top_p",
+        }
+    )
+    _OVH_ALLOWED_COMPLETION_PARAMETERS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "best_of",
+            "echo",
+            "frequency_penalty",
+            "json_schema",
+            "logprobs",
+            "max_tokens",
+            "n",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "suffix",
+            "temperature",
+            "top_p",
+        }
+    )
 
-    def _wrap_thinking_by_reasoning_content(self, delta: dict, is_reasoning: bool) -> tuple[str, bool]:
+    def _wrap_thinking_by_reasoning_content(
+        self, delta: dict, is_reasoning: bool
+    ) -> tuple[str, bool]:
         """
         Override base wrapper to support OVH `reasoning` deltas, emitting
         <think> blocks compatible with Dify's downstream filters.
@@ -119,9 +126,8 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         # instead of letting the base class fail with max_tokens first.
         param_pref = credentials.get("token_param_name", "auto")
         endpoint_model = credentials.get("endpoint_model_name") or model
-        if (
-            param_pref == "max_completion_tokens"
-            or (param_pref == "auto" and self._needs_max_completion_tokens(endpoint_model))
+        if param_pref == "max_completion_tokens" or (
+            param_pref == "auto" and self._needs_max_completion_tokens(endpoint_model)
         ):
             self._retry_with_safe_min_tokens(model, credentials)
             return
@@ -133,8 +139,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
 
             # --- Retry path 1: token parameter incompatibility ---
             should_retry_floor = (
-                "Invalid 'max_output_tokens'" in msg
-                or "integer_below_min_value" in msg
+                "Invalid 'max_output_tokens'" in msg or "integer_below_min_value" in msg
             )
             if should_retry_floor:
                 self._retry_with_safe_min_tokens(model, credentials)
@@ -154,12 +159,11 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         mode = credentials.get("mode", "chat")
 
         param_pref = credentials.get("token_param_name", "auto")
-        use_max_completion = (
-            param_pref == "max_completion_tokens"
-            or (param_pref == "auto" and self._needs_max_completion_tokens(endpoint_model))
+        use_max_completion = param_pref == "max_completion_tokens" or (
+            param_pref == "auto" and self._needs_max_completion_tokens(endpoint_model)
         )
 
-        SAFE_MIN_TOKENS = 16
+        safe_min_tokens = 16
 
         try:
             headers = {"Content-Type": "application/json"}
@@ -173,20 +177,25 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
                     "stream": False,
                 }
                 if use_max_completion:
-                    payload["max_completion_tokens"] = SAFE_MIN_TOKENS
+                    payload["max_completion_tokens"] = safe_min_tokens
                 else:
-                    payload["max_tokens"] = SAFE_MIN_TOKENS
+                    payload["max_tokens"] = safe_min_tokens
             else:
                 endpoint = urljoin(endpoint_url.rstrip("/") + "/", "completions")
                 payload = {
                     "model": endpoint_model,
                     "prompt": "ping",
-                    "max_tokens": SAFE_MIN_TOKENS,
+                    "max_tokens": safe_min_tokens,
                     "stream": False,
                 }
 
-            response = httpx.post(endpoint, headers=headers, json=payload, timeout=self._VALIDATE_TIMEOUT)
-            if response.status_code != 200:
+            response = httpx.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=self._VALIDATE_TIMEOUT,
+            )
+            if response.status_code != HTTPStatus.OK:
                 self._raise_credentials_error(response)
         except Exception as sub_e:
             raise CredentialsValidateFailedError(str(sub_e)) from sub_e
@@ -199,17 +208,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
 
         structured_output_support = credentials.get("structured_output_support", "not_supported")
         if structured_output_support == "supported":
-            # ----
-            # The following section should be added after the new version of `dify-plugin-sdks`
-            # is released.
-            # Related Commit:
-            # https://github.com/langgenius/dify-plugin-sdks/commit/0690573a879caf43f92494bf411f45a1835d96f6
-            # ----
-            # try:
-            #     entity.features.index(ModelFeature.STRUCTURED_OUTPUT)
-            # except ValueError:
-            #     entity.features.append(ModelFeature.STRUCTURED_OUTPUT)
-
             entity.parameter_rules.append(
                 ParameterRule(
                     name=DefaultParameterName.RESPONSE_FORMAT.value,
@@ -246,7 +244,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         return entity
 
     @classmethod
-    def _drop_analyze_channel(cls, prompt_messages: List[PromptMessage]) -> None:
+    def _drop_analyze_channel(cls, prompt_messages: list[PromptMessage]) -> None:
         """
         Remove thinking content from assistant messages for better performance.
 
@@ -279,11 +277,11 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         credentials: dict,
         prompt_messages: list[PromptMessage],
         model_parameters: dict,
-        tools: Optional[list[PromptMessageTool]] = None,
-        stop: Optional[list[str]] = None,
+        tools: list[PromptMessageTool] | None = None,
+        stop: list[str] | None = None,
         stream: bool = True,
-        user: Optional[str] = None,
-    ) -> Union[LLMResult, Generator]:
+        user: str | None = None,
+    ) -> LLMResult | Generator:
         credentials = build_ovh_credentials(credentials)
         schema = self.get_model_schema(model, credentials)
         model_parameters = self._sanitize_model_parameters(schema, dict(model_parameters))
@@ -297,7 +295,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         else:
             allowed_parameters = set()
         model_parameters = {k: v for k, v in model_parameters.items() if k in allowed_parameters}
-        tool_count = len(tools) if tools else 0
         supports_tool_call = self._supports_tool_call(schema)
         if tools and not supports_tool_call:
             tools = None
@@ -317,15 +314,15 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         def _needs_max_completion_tokens(m: str) -> bool:
             return bool(re.match(r"^(o1|o3|gpt-5)", m, re.IGNORECASE))
 
-        use_max_completion = (
-            (param_pref == "max_completion_tokens")
-            or (param_pref == "auto" and _needs_max_completion_tokens(model))
+        use_max_completion = (param_pref == "max_completion_tokens") or (
+            param_pref == "auto" and _needs_max_completion_tokens(model)
         )
 
-        if use_max_completion:
+        if use_max_completion and (
+            "max_completion_tokens" not in model_parameters and "max_tokens" in model_parameters
+        ):
             # Only map if caller didn't already provide max_completion_tokens
-            if "max_completion_tokens" not in model_parameters and "max_tokens" in model_parameters:
-                model_parameters["max_completion_tokens"] = model_parameters.pop("max_tokens")
+            model_parameters["max_completion_tokens"] = model_parameters.pop("max_tokens")
 
         result = super()._invoke(
             model, invoke_credentials, prompt_messages, model_parameters, tools, stop, stream, None

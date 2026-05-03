@@ -1,15 +1,21 @@
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
+from http import HTTPStatus
 from io import BytesIO
-from typing import Any, Mapping, Optional
+from typing import Any
 
 import httpx
-from pydub import AudioSegment
-
 from dify_plugin import TTSModel
 from dify_plugin.entities.model import AIModelEntity, I18nObject, ModelPropertyKey
-from dify_plugin.errors.model import CredentialsValidateFailedError, InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
-from models.ovh_errors import format_ovh_rate_limit_error
+from dify_plugin.errors.model import (
+    CredentialsValidateFailedError,
+    InvokeBadRequestError,
+    InvokeError,
+    InvokeServerUnavailableError,
+)
+from pydub import AudioSegment
+
 from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
+from models.ovh_errors import format_ovh_rate_limit_error
 
 _TTS_MODEL_CONFIG: dict[str, dict[str, Any]] = {
     "nvr-tts-en-us": {
@@ -50,7 +56,9 @@ class OpenAIText2SpeechModel(TTSModel):
             output_buffer.seek(0)
             return output_buffer.read()
         except Exception as ex:
-            raise InvokeBadRequestError(f"pydub failed to convert OVH TTS WAV to MP3: {ex!s}") from ex
+            raise InvokeBadRequestError(
+                f"pydub failed to convert OVH TTS WAV to MP3: {ex!s}"
+            ) from ex
 
     @staticmethod
     def _get_tts_model_config(model: str, credentials: dict) -> dict[str, Any]:
@@ -78,21 +86,38 @@ class OpenAIText2SpeechModel(TTSModel):
         credentials: dict,
         content_text: str,
         voice: str,
-        user: Optional[str] = None,
-    ) -> Any:
+        user: str | None = None,
+    ) -> Generator[bytes, None, None]:
         normalized_credentials = build_ovh_credentials(credentials)
-        if not voice or voice not in [d["value"] for d in self.get_tts_model_voices(model=model, credentials=normalized_credentials)]:
+        if not voice or voice not in [
+            d["value"]
+            for d in self.get_tts_model_voices(model=model, credentials=normalized_credentials)
+        ]:
             voice = self._get_model_default_voice(model, normalized_credentials)
-        return self._tts_invoke(model=model, credentials=normalized_credentials, content_text=content_text, voice=voice)
+        return self._tts_invoke(
+            model=model,
+            credentials=normalized_credentials,
+            content_text=content_text,
+            voice=voice,
+        )
 
-    def validate_credentials(self, model: str, credentials: dict, user: Optional[str] = None) -> None:
+    def validate_credentials(self, model: str, credentials: dict, user: str | None = None) -> None:
         normalized_credentials = build_ovh_credentials(credentials)
         try:
-            next(self._tts_invoke(model=model, credentials=normalized_credentials, content_text="Test.", voice=self._get_model_default_voice(model, normalized_credentials)))
+            next(
+                self._tts_invoke(
+                    model=model,
+                    credentials=normalized_credentials,
+                    content_text="Test.",
+                    voice=self._get_model_default_voice(model, normalized_credentials),
+                )
+            )
         except Exception as ex:
             raise CredentialsValidateFailedError(str(ex)) from ex
 
-    def _tts_invoke(self, model: str, credentials: dict, content_text: str, voice: str) -> Generator[bytes, None, None]:
+    def _tts_invoke(
+        self, model: str, credentials: dict, content_text: str, voice: str
+    ) -> Generator[bytes, None, None]:
         tts_config = self._get_tts_model_config(model, credentials)
         endpoint_url = tts_config["endpoint"]
         word_limit = self._get_model_word_limit(model, credentials)
@@ -102,11 +127,10 @@ class OpenAIText2SpeechModel(TTSModel):
             "accept": "application/octet-stream",
             **build_ovh_auth_headers(credentials.get("api_key")),
         }
-        api_key = credentials.get("api_key")
 
         try:
             with httpx.Client(timeout=120.0) as client:
-                for index, sentence in enumerate(sentences, start=1):
+                for sentence in sentences:
                     payload = {
                         "encoding": tts_config["encoding"],
                         "language_code": tts_config["language_code"],
@@ -115,8 +139,8 @@ class OpenAIText2SpeechModel(TTSModel):
                         "voice_name": voice,
                     }
                     response = client.post(endpoint_url, headers=headers, json=payload)
-                    if response.status_code != 200:
-                        body = format_ovh_rate_limit_error(response.status_code, response.text, api_key)
+                    if response.status_code != HTTPStatus.OK:
+                        body = format_ovh_rate_limit_error(response.status_code, response.text)
                         raise InvokeBadRequestError(body)
 
                     audio_bytes = response.content
@@ -140,7 +164,9 @@ class OpenAIText2SpeechModel(TTSModel):
 
         return entity
 
-    def get_tts_model_voices(self, model: str, credentials: dict, language: str | None = None) -> list | None:
+    def get_tts_model_voices(
+        self, model: str, credentials: dict, language: str | None = None
+    ) -> list | None:
         normalized_credentials = build_ovh_credentials(credentials)
         model_schema = self.get_model_schema(model, normalized_credentials)
 

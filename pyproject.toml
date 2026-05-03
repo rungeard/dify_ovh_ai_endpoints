@@ -12,11 +12,61 @@ dependencies = [
     "pydub==0.25.1",
 ]
 
-# uv run black . -C -l 100
 # uv run ruff check --fix
 [dependency-groups]
 dev = [
-    "black==26.3.1",
     "pytest==9.0.3",
     "ruff==0.15.11",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "ERA",
+    "YTT",
+    "ANN",
+    "ASYNC",
+    "S",
+    "BLE",
+    "FBT",
+    "B",
+    "A",
+    "C4",
+    "DTZ",
+    "FIX",
+    "INT",
+    "ICN",
+    "PIE",
+    "T20",
+    "PYI",
+    "PT",
+    "Q",
+    "SIM",
+    "ARG",
+    "FLY",
+    "I",
+    "N",
+    "PERF",
+    "E",
+    "W",
+    "F",
+    "PL",
+    "UP",
+    "FURB",
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"models/llm/llm.py" = ["ARG002", "FBT001", "FBT002", "PLR0913"]
+"models/moderation/moderation.py" = ["ARG002"]
+"models/speech2text/speech2text.py" = ["ARG002"]
+"models/text_embedding/text_embedding.py" = ["ARG002"]
+"models/tts/tts.py" = ["ARG002", "PLR0913"]
+"tests/*.py" = ["S101"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live_ovh: smoke tests hitting live OVH endpoints",
 ]

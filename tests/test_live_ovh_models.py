@@ -1,30 +1,30 @@
 from __future__ import annotations
 
-from binascii import hexlify
+import importlib
 import json
 import math
+import os
 import shutil
 import struct
 import sys
 import wave
+from binascii import hexlify
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 import yaml
-
 from dify_plugin.config.integration_config import IntegrationConfig
 from dify_plugin.core.entities.plugin.request import (
     ModelActions,
     ModelInvokeLLMRequest,
     ModelInvokeModerationRequest,
     ModelInvokeSpeech2TextRequest,
-    ModelInvokeTTSRequest,
     ModelInvokeTextEmbeddingRequest,
+    ModelInvokeTTSRequest,
     PluginInvokeType,
 )
-from dify_plugin.entities.model import AIModelEntity
-from dify_plugin.entities.model import ModelType
+from dify_plugin.entities.model import AIModelEntity, ModelType
 from dify_plugin.entities.model.llm import LLMResultChunk
 from dify_plugin.entities.model.message import PromptMessageTool
 from dify_plugin.entities.model.moderation import ModerationResult
@@ -35,10 +35,13 @@ from dify_plugin.integration.run import PluginRunner
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 MODELS_DIR = BASE_DIR / "models"
-sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
-from models.text_embedding.text_embedding import OpenAITextEmbeddingModel
-from models.tts.tts import _TTS_MODEL_CONFIG
+OpenAITextEmbeddingModel = importlib.import_module(
+    "models.text_embedding.text_embedding"
+).OpenAITextEmbeddingModel
+_TTS_MODEL_CONFIG = importlib.import_module("models.tts.tts")._TTS_MODEL_CONFIG
 
 PROVIDER_NAME = "ovh_ai_endpoints"
 TINY_PNG_BASE64 = (
@@ -148,9 +151,27 @@ def plugin_package_path(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture(scope="session")
-def runner(plugin_package_path: str) -> PluginRunner:
-    with PluginRunner(config=IntegrationConfig(), plugin_package_path=plugin_package_path) as plugin_runner:
-        yield plugin_runner
+def runner(plugin_package_path: str, tmp_path_factory: pytest.TempPathFactory) -> PluginRunner:
+    cache_root = tmp_path_factory.mktemp("plugin_runner_cache")
+    previous_uv_cache_dir = os.environ.get("UV_CACHE_DIR")
+    previous_xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
+    os.environ["UV_CACHE_DIR"] = str(cache_root / "uv")
+    os.environ["XDG_CACHE_HOME"] = str(cache_root)
+
+    try:
+        with PluginRunner(
+            config=IntegrationConfig(), plugin_package_path=plugin_package_path
+        ) as plugin_runner:
+            yield plugin_runner
+    finally:
+        if previous_uv_cache_dir is None:
+            os.environ.pop("UV_CACHE_DIR", None)
+        else:
+            os.environ["UV_CACHE_DIR"] = previous_uv_cache_dir
+        if previous_xdg_cache_home is None:
+            os.environ.pop("XDG_CACHE_HOME", None)
+        else:
+            os.environ["XDG_CACHE_HOME"] = previous_xdg_cache_home
 
 
 @pytest.fixture(scope="session")
@@ -199,7 +220,9 @@ def _collect_llm_output(results: list[LLMResultChunk]) -> tuple[str, bool]:
 
 def _llm_full_parameters(model_name: str) -> dict[str, object]:
     manifest = LLM_MANIFESTS[model_name]
-    parameter_names = {rule["name"] for rule in manifest.get("parameter_rules", []) if rule.get("name")}
+    parameter_names = {
+        rule["name"] for rule in manifest.get("parameter_rules", []) if rule.get("name")
+    }
     parameters: dict[str, object] = {}
 
     if "temperature" in parameter_names:
@@ -353,7 +376,10 @@ def test_moderation_invoke_minimal_and_full(
         model_type=ModelType.MODERATION,
         model=model_name,
         credentials=anonymous_credentials,
-        text="Classify this text with one label only: Safe, Unsafe, or Controversial.\nText: Hello friend.",
+        text=(
+            "Classify this text with one label only: Safe, Unsafe, or Controversial.\n"
+            "Text: Hello friend."
+        ),
     )
 
     try:
@@ -407,6 +433,10 @@ def test_text_embedding_invoke_minimal_and_full(
         assert len(minimal_result.embeddings) == 1
         assert minimal_result.embeddings[0]
 
+        full_input_texts = [
+            json.dumps({"text": "Describe this image", "image": "https://example.com/test.png"}),
+            "![tiny](https://example.com/test.png)",
+        ]
         full_result = _embedding_model().invoke(
             model_name,
             {
@@ -415,13 +445,10 @@ def test_text_embedding_invoke_minimal_and_full(
                 "query_instruction_prefix": "Query: ",
                 "encoding_format": "float",
             },
-            [
-                json.dumps({"text": "Describe this image", "image": "https://example.com/test.png"}),
-                "![tiny](https://example.com/test.png)",
-            ],
+            full_input_texts,
             input_type="query",
         )
-        assert len(full_result.embeddings) == 2
+        assert len(full_result.embeddings) == len(full_input_texts)
         assert all(embedding for embedding in full_result.embeddings)
     except Exception as exc:
         _skip_if_rate_limited(exc)
@@ -448,7 +475,11 @@ def test_speech2text_invoke_minimal_and_full(
         provider=PROVIDER_NAME,
         model_type=ModelType.SPEECH2TEXT,
         model=model_name,
-        credentials={"api_key": "", "language": "en", "initial_prompt": "Transcribe the audio exactly."},
+        credentials={
+            "api_key": "",
+            "language": "en",
+            "initial_prompt": "Transcribe the audio exactly.",
+        },
         file=hexlify(Path(speech2text_file_path).read_bytes()).decode(),
     )
 
