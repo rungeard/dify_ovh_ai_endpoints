@@ -60,7 +60,7 @@ jobs:
         with:
           repository: ${{ steps.plugin_info.outputs.author }}/dify-plugins
           path: dify-plugins
-          token: ${{ secrets.PLUGIN_ACTION }}
+          token: ${{ secrets.PLUGIN_FORK_TOKEN }}
           fetch-depth: 1
           persist-credentials: true
 
@@ -91,12 +91,28 @@ jobs:
 
       - name: Create PR to upstream
         env:
-          GH_TOKEN: ${{ secrets.PLUGIN_ACTION }}
+          GH_TOKEN: ${{ secrets.PLUGIN_PR_TOKEN }}
         run: |
+          REPO="langgenius/dify-plugins"
+          HEAD="${{ steps.plugin_info.outputs.author }}:${{ steps.publish.outputs.branch_name }}"
+          BASE="main"
+
+          EXISTING_PR_NUMBER=$(gh pr list \
+            --repo "$REPO" \
+            --head "$HEAD" \
+            --base "$BASE" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR_NUMBER" ]; then
+            echo "Open PR already exists: #$EXISTING_PR_NUMBER"
+            exit 0
+          fi
+
           gh pr create \
-            --repo langgenius/dify-plugins \
-            --head "${{ steps.plugin_info.outputs.author }}:${{ steps.publish.outputs.branch_name }}" \
-            --base main \
+            --repo "$REPO" \
+            --head "$HEAD" \
+            --base "$BASE" \
             --title "bump ${{ steps.plugin_info.outputs.plugin_name }} plugin to version ${{ steps.plugin_info.outputs.version }}" \
-            --body "Bump \`${{ steps.plugin_info.outputs.plugin_name }}\` plugin package to version \`${{ steps.plugin_info.outputs.version }}\`." \
-            || echo "PR already exists or no change detected."
+            --body "Bump ${{ steps.plugin_info.outputs.plugin_name }} plugin package to version ${{ steps.plugin_info.outputs.version }}."
