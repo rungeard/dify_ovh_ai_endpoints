@@ -1,0 +1,102 @@
+name: Auto Publish Plugin PR
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+
+      - name: Download Dify CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP/bin"
+          wget -q https://github.com/langgenius/dify-plugin-daemon/releases/latest/download/dify-plugin-linux-amd64
+          chmod +x dify-plugin-linux-amd64
+
+      - name: Read plugin info from manifest
+        id: plugin_info
+        run: |
+          PLUGIN_NAME=$(grep '^name:' manifest.yaml | cut -d':' -f2 | xargs | tr -d '"')
+          VERSION=$(grep '^version:' manifest.yaml | cut -d':' -f2 | xargs | tr -d '"')
+          AUTHOR=$(grep '^author:' manifest.yaml | cut -d':' -f2 | xargs | tr -d '"')
+
+          echo "plugin_name=$PLUGIN_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "author=$AUTHOR" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin
+        id: package
+        run: |
+          PACKAGE_NAME="${{ steps.plugin_info.outputs.plugin_name }}-${{ steps.plugin_info.outputs.version }}.difypkg"
+          "$RUNNER_TEMP/bin/dify-plugin-linux-amd64" plugin package . -o "$PACKAGE_NAME"
+          echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release in source repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.plugin_info.outputs.version }}"
+          PACKAGE_NAME="${{ steps.package.outputs.package_name }}"
+          TAG_NAME="v${VERSION}"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$PACKAGE_NAME" --clobber
+          else
+            gh release create "$TAG_NAME" "$PACKAGE_NAME" \
+              --title "$TAG_NAME" \
+              --generate-notes
+          fi
+
+      - name: Checkout forked dify-plugins repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.plugin_info.outputs.author }}/dify-plugins
+          path: dify-plugins
+          token: ${{ secrets.PLUGIN_ACTION }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Commit package to fork
+        id: publish
+        run: |
+          PACKAGE_NAME="${{ steps.package.outputs.package_name }}"
+          PLUGIN_NAME="${{ steps.plugin_info.outputs.plugin_name }}"
+          VERSION="${{ steps.plugin_info.outputs.version }}"
+          AUTHOR="${{ steps.plugin_info.outputs.author }}"
+          BRANCH_NAME="bump-${PLUGIN_NAME}-plugin-${VERSION}"
+
+          mkdir -p "dify-plugins/${AUTHOR}/${PLUGIN_NAME}"
+          mv "$PACKAGE_NAME" "dify-plugins/${AUTHOR}/${PLUGIN_NAME}/"
+
+          cd dify-plugins
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git fetch origin main
+          git checkout main
+          git pull origin main
+          git checkout -B "$BRANCH_NAME"
+          git add "${AUTHOR}/${PLUGIN_NAME}/${PACKAGE_NAME}"
+          git commit -m "bump ${PLUGIN_NAME} plugin to version ${VERSION}" || echo "No changes to commit"
+          git push -u origin "$BRANCH_NAME" --force
+
+          echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create PR to upstream
+        env:
+          GH_TOKEN: ${{ secrets.PLUGIN_ACTION }}
+        run: |
+          gh pr create \
+            --repo langgenius/dify-plugins \
+            --head "${{ steps.plugin_info.outputs.author }}:${{ steps.publish.outputs.branch_name }}" \
+            --base main \
+            --title "bump ${{ steps.plugin_info.outputs.plugin_name }} plugin to version ${{ steps.plugin_info.outputs.version }}" \
+            --body "Bump \`${{ steps.plugin_info.outputs.plugin_name }}\` plugin package to version \`${{ steps.plugin_info.outputs.version }}\`." \
+            || echo "PR already exists or no change detected."
