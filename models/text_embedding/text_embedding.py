@@ -1,11 +1,11 @@
-from typing import Mapping, Optional
 import json
-import re
 import logging
+import re
+from collections.abc import Mapping
+from http import HTTPStatus
 
 import httpx
 import tiktoken
-
 from dify_plugin.entities.model import (
     AIModelEntity,
     EmbeddingInputType,
@@ -13,16 +13,16 @@ from dify_plugin.entities.model import (
     ModelFeature,
 )
 from dify_plugin.entities.model.text_embedding import (
-    TextEmbeddingResult,
     EmbeddingUsage,
+    TextEmbeddingResult,
 )
 from dify_plugin.errors.model import InvokeError, InvokeServerUnavailableError
 from dify_plugin.interfaces.model.openai_compatible.text_embedding import (
     OAICompatEmbeddingModel,
 )
-from models.ovh_errors import format_ovh_rate_limit_error
-from models.ovh_credentials import build_ovh_credentials
 
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
+from models.ovh_errors import format_ovh_rate_limit_error
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         model: str,
         credentials: dict,
         texts: list[str],
-        user: Optional[str] = None,
+        user: str | None = None,
         input_type: EmbeddingInputType = EmbeddingInputType.DOCUMENT,
     ) -> TextEmbeddingResult:
         """
@@ -74,8 +74,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
 
         # Process inputs - convert to multimodal format if needed
         processed_inputs = [
-            self._process_input(text, vision_support == "support")
-            for text in texts
+            self._process_input(text, vision_enabled=vision_support == "support") for text in texts
         ]
 
         # Apply prefix
@@ -83,21 +82,21 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         if prefix:
             processed_inputs = self._add_prefix_to_inputs(processed_inputs, prefix)
 
-        # Get context size and max chunks from credentials or model properties
+        # Get context size from credentials or model properties
         context_size = self._get_context_size(model, credentials)
-        max_chunks = self._get_max_chunks(model, credentials)
 
         # Truncate long texts to fit the embedding context window.
         inputs = []
-        for text in processed_inputs:
+        for processed_text in processed_inputs:
+            truncated_text = processed_text
             # Check token count and truncate if necessary
-            num_tokens = self._get_num_tokens_by_gpt2(text)
+            num_tokens = self._get_num_tokens_by_gpt2(truncated_text)
             if num_tokens >= context_size:
                 # Truncate to fit within context size
-                cutoff = int(len(text) * (context_size / num_tokens))
-                text = text[0:cutoff]
+                cutoff = int(len(truncated_text) * (context_size / num_tokens))
+                truncated_text = truncated_text[0:cutoff]
 
-            inputs.append(text)
+            inputs.append(truncated_text)
 
         # Call API in batches
         return self._embed_in_batches(model, credentials, inputs, user, input_type)
@@ -107,7 +106,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         model: str,
         credentials: dict,
         inputs: list[str],
-        user: Optional[str] = None,
+        user: str | None = None,
         input_type: EmbeddingInputType = EmbeddingInputType.DOCUMENT,
     ) -> TextEmbeddingResult:
         """
@@ -118,10 +117,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         endpoint_model_name = credentials.get("endpoint_model_name", "") or model
         max_chunks = self._get_max_chunks(model, credentials)
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
+        headers = build_ovh_auth_headers(api_key)
 
         batched_embeddings = []
         used_tokens = 0
@@ -155,11 +151,9 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
                 )
 
                 # Debug: log response on error
-                if response.status_code != 200:
-                    error_body = format_ovh_rate_limit_error(response.status_code, response.text, api_key)
-                    logger.error(
-                        f"Embedding API Error {response.status_code}: {error_body}"
-                    )
+                if response.status_code != HTTPStatus.OK:
+                    error_body = format_ovh_rate_limit_error(response.status_code, response.text)
+                    logger.error(f"Embedding API Error {response.status_code}: {error_body}")
                     raise InvokeError(error_body)
 
                 response.raise_for_status()
@@ -167,8 +161,7 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
                 result = response.json()
 
                 # Extract embeddings
-                for data in result["data"]:
-                    batched_embeddings.append(data["embedding"])
+                batched_embeddings.extend(data["embedding"] for data in result["data"])
 
                 # Extract usage information from API response
                 usage = result.get("usage") or {}
@@ -201,11 +194,11 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
             )
 
         except httpx.HTTPError as ex:
-            raise InvokeServerUnavailableError(str(ex))
-        except Exception as ex:
-            raise InvokeError(str(ex))
+            raise InvokeServerUnavailableError(str(ex)) from ex
+        except (KeyError, TypeError, ValueError) as ex:
+            raise InvokeError(str(ex)) from ex
 
-    def _process_input(self, text: str, vision_enabled: bool) -> str:
+    def _process_input(self, text: str, *, vision_enabled: bool) -> str:
         """
         Normalize input to plain text before calling the embedding endpoint.
 
@@ -293,8 +286,6 @@ class OpenAITextEmbeddingModel(OAICompatEmbeddingModel):
         try:
             encoding = tiktoken.get_encoding("gpt2")
             return len(encoding.encode(text))
-        except Exception:
+        except (KeyError, TypeError, ValueError):
             # Fallback to character count or a default if tiktoken fails
-            return (
-                len(text) // 4
-            )  # Rough estimate if tiktoken is not available or fails
+            return len(text) // 4  # Rough estimate if tiktoken is not available or fails

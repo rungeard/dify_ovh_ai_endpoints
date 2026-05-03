@@ -1,12 +1,18 @@
 import logging
-from typing import IO, Optional
+from http import HTTPStatus
+from typing import IO
 from urllib.parse import urljoin
 
 import httpx
 from dify_plugin.entities.model import AIModelEntity, FetchFrom, I18nObject, ModelType
-from dify_plugin.errors.model import InvokeBadRequestError, InvokeError, InvokeServerUnavailableError
+from dify_plugin.errors.model import (
+    InvokeBadRequestError,
+    InvokeError,
+    InvokeServerUnavailableError,
+)
 from dify_plugin.interfaces.model.openai_compatible.speech2text import OAICompatSpeech2TextModel
-from models.ovh_credentials import build_ovh_credentials
+
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 from models.ovh_errors import format_ovh_rate_limit_error
 
 logger = logging.getLogger(__name__)
@@ -15,7 +21,9 @@ logger = logging.getLogger(__name__)
 class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
     _INVOKE_TIMEOUT = (10, 120)
 
-    def _invoke(self, model: str, credentials: dict, file: IO[bytes], user: Optional[str] = None) -> str:
+    def _invoke(
+        self, model: str, credentials: dict, file: IO[bytes], user: str | None = None
+    ) -> str:
         """
         Invoke speech2text model
 
@@ -27,7 +35,7 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
         """
         credentials = build_ovh_credentials(credentials)
         api_key = credentials.get("api_key")
-        headers = {"Authorization": f"Bearer {api_key}"}
+        headers = build_ovh_auth_headers(api_key, content_type=None)
 
         endpoint_url = credentials.get("endpoint_url", "https://api.openai.com/v1/")
         if not endpoint_url.endswith("/"):
@@ -36,11 +44,19 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
 
         language = credentials.get("language", "en")
         prompt = credentials.get("initial_prompt", "convert the audio to text")
-        payload = {"model": credentials.get("endpoint_model_name", model), "language": language, "prompt": prompt}
+        payload = {
+            "model": credentials.get("endpoint_model_name", model),
+            "language": language,
+            "prompt": prompt,
+        }
         files = [("file", file)]
         try:
             response = httpx.post(
-                endpoint_url, headers=headers, data=payload, files=files, timeout=self._INVOKE_TIMEOUT
+                endpoint_url,
+                headers=headers,
+                data=payload,
+                files=files,
+                timeout=self._INVOKE_TIMEOUT,
             )
         except httpx.TimeoutException as ex:
             logger.error("STT request timed out for endpoint %s", endpoint_url)
@@ -53,8 +69,8 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
                 f"Speech-to-text request failed while calling {endpoint_url}: {ex!s}"
             ) from ex
 
-        if response.status_code != 200:
-            error_body = format_ovh_rate_limit_error(response.status_code, response.text, api_key)
+        if response.status_code != HTTPStatus.OK:
+            error_body = format_ovh_rate_limit_error(response.status_code, response.text)
             logger.error("STT API error %s: %s", response.status_code, error_body)
             raise InvokeBadRequestError(
                 f"Speech-to-text API returned status {response.status_code}: {error_body}"
@@ -72,9 +88,7 @@ class OpenAISpeech2TextModel(OAICompatSpeech2TextModel):
 
         return text
 
-    def get_customizable_model_schema(
-        self, model: str, credentials: dict
-    ) -> Optional[AIModelEntity]:
+    def get_customizable_model_schema(self, model: str, credentials: dict) -> AIModelEntity | None:
         """
         used to define customizable model schema
         """

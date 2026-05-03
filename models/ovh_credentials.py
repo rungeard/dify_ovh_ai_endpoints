@@ -27,3 +27,17 @@ def build_ovh_credentials(credentials: Mapping | dict | None) -> dict:
     normalized["mode"] = mode or "chat"
 
     return normalized
+
+
+def build_ovh_auth_headers(
+    api_key: str | None, content_type: str | None = "application/json"
+) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if content_type:
+        headers["Content-Type"] = content_type
+
+    token = str(api_key or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    return headers

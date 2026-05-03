@@ -3,12 +3,12 @@ label:
   en_US: nvr-tts-it-it
 model_type: tts
 model_properties:
-  default_voice: "Italian-IT.Female-1"
+  default_voice: "Italian-IT-Female-1"
   voices:
-    - mode: "Italian-IT.Female-1"
+    - mode: "Italian-IT-Female-1"
       name: "Italian IT Female 1"
       language: ["it-IT"]
-    - mode: "Italian-IT.Male-1"
+    - mode: "Italian-IT-Male-1"
       name: "Italian IT Male 1"
       language: ["it-IT"]
   word_limit: 3500

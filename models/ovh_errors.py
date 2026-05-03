@@ -1,8 +1,8 @@
-from typing import Optional
+from http import HTTPStatus
 
 
-def format_ovh_rate_limit_error(status_code: int, body: str, api_key: Optional[str] = None) -> str:
-    if status_code != 429:
+def format_ovh_rate_limit_error(status_code: int, body: str) -> str:
+    if status_code != HTTPStatus.TOO_MANY_REQUESTS:
         return body[:1000]
 
     return (
