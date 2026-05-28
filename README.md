@@ -18,7 +18,7 @@ OVH references:
 
 ### OVH AI Endpoints Models Matrix
 
-Reference date: 2026-03-31.
+Reference date: 2026-05-28.
 
 #### Workflow code-node profiles
 
@@ -35,6 +35,8 @@ Reference date: 2026-03-31.
 
 | Model | OVH category | Dify type in this provider | I/O summary | Profile |
 |---|---|---|---|---|
+| `Qwen3.5-397B-A17B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
+| `Qwen3.5-9B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
 | `gpt-oss-120b` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
 | `gpt-oss-20b` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
 | `Qwen3-32B` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
@@ -64,6 +66,8 @@ Reference date: 2026-03-31.
 
 #### Context windows from OVH catalog
 
+- `Qwen3.5-397B-A17B`: 262K
+- `Qwen3.5-9B`: 262K
 - `Qwen3-Coder-30B-A3B-Instruct`: 256K
 - `gpt-oss-120b`: 131K
 - `gpt-oss-20b`: 131K
