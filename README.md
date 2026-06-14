@@ -24,7 +24,7 @@ Reference date: 2026-03-31.
 
 - `LLM_STANDARD`: `temperature`, `top_p`, `max_tokens`, structured output controlled by the native Dify LLM/Agent blocks.
 - `LLM_REASONING`: `LLM_STANDARD` + `reasoning_effort` (`low|medium|high`) and optional hidden reasoning output handling.
-- `LLM_VISION`: `LLM_STANDARD` with multimodal `messages` payloads (`text` + `image_url`).
+- `LLM_VISION`: `LLM_STANDARD` with multimodal `messages` payloads (`text` + `image_url`) and, when exposed by the model, `reasoning_effort`.
 - `MODERATION_GUARD`: moderation/safety classification, boolean blocked/safe output.
 - `EMBEDDINGS`: endpoint `/v1/embeddings`, body `{model, input}` where `input` is `str|list[str]`, output vectors.
 - `SPEECH2TEXT`: endpoint `/v1/audio/transcriptions`, multipart body with `file`, `model`, optional `language`, `prompt`, `response_format`.
@@ -38,6 +38,9 @@ Reference date: 2026-03-31.
 | `gpt-oss-120b` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
 | `gpt-oss-20b` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
 | `Qwen3-32B` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
+| `Qwen3.6-27B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
+| `Qwen3.5-397B-A17B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
+| `Qwen3.5-9B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
 | `Qwen3-Coder-30B-A3B-Instruct` | Code LLM | `llm` | code-oriented text/json out, tool calling | `LLM_STANDARD` |
 | `Mistral-Small-3.2-24B-Instruct-2506` | Visual LLM | `llm` | multimodal in, text/json out, tool calling | `LLM_VISION` |
 | `Qwen2.5-VL-72B-Instruct` | Visual LLM | `llm` | multimodal in, text/json out | `LLM_VISION` |
@@ -68,6 +71,9 @@ Reference date: 2026-03-31.
 - `gpt-oss-120b`: 131K
 - `gpt-oss-20b`: 131K
 - `Qwen3-32B`: 32K
+- `Qwen3.6-27B`: 262K
+- `Qwen3.5-397B-A17B`: 262K
+- `Qwen3.5-9B`: 262K
 - `Mistral-Small-3.2-24B-Instruct-2506`: 128K
 - `Meta-Llama-3_3-70B-Instruct`: 131K
 - `Mistral-7B-Instruct-v0.3`: 127K

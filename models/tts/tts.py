@@ -1,3 +1,4 @@
+import re
 from collections.abc import Generator, Mapping
 from http import HTTPStatus
 from io import BytesIO
@@ -46,6 +47,8 @@ _TTS_MODEL_CONFIG: dict[str, dict[str, Any]] = {
 
 
 class OpenAIText2SpeechModel(TTSModel):
+    _THINK_PATTERN = re.compile(r"^<think>.*?</think>\s*", re.DOTALL)
+
     @staticmethod
     def _convert_wav_to_mp3(audio_bytes: bytes) -> bytes:
         try:
@@ -78,6 +81,12 @@ class OpenAIText2SpeechModel(TTSModel):
             return voice
 
         return default_voice or voice
+
+    @classmethod
+    def _strip_thinking_content(cls, content_text: str) -> str:
+        if not content_text.startswith("<think>"):
+            return content_text
+        return cls._THINK_PATTERN.sub("", content_text, count=1)
 
     def _invoke(
         self,
@@ -121,6 +130,7 @@ class OpenAIText2SpeechModel(TTSModel):
         tts_config = self._get_tts_model_config(model, credentials)
         endpoint_url = tts_config["endpoint"]
         word_limit = self._get_model_word_limit(model, credentials)
+        content_text = self._strip_thinking_content(content_text)
         sentences = list(self._split_text_into_sentences(content_text, word_limit or 2000))
 
         headers = {
