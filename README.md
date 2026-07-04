@@ -37,16 +37,13 @@ Reference date: 2026-03-31.
 |---|---|---|---|---|
 | `gpt-oss-120b` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
 | `gpt-oss-20b` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
-| `Qwen3-32B` | Reasoning LLM | `llm` | text/json out, tool calling, reasoning | `LLM_REASONING` |
 | `Qwen3.6-27B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
 | `Qwen3.5-397B-A17B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
 | `Qwen3.5-9B` | Visual LLM | `llm` | multimodal in, text/json out, tool calling, reasoning | `LLM_VISION` |
-| `Qwen3-Coder-30B-A3B-Instruct` | Code LLM | `llm` | code-oriented text/json out, tool calling | `LLM_STANDARD` |
 | `Mistral-Small-3.2-24B-Instruct-2506` | Visual LLM | `llm` | multimodal in, text/json out, tool calling | `LLM_VISION` |
 | `Qwen2.5-VL-72B-Instruct` | Visual LLM | `llm` | multimodal in, text/json out | `LLM_VISION` |
 | `Meta-Llama-3_3-70B-Instruct` | LLM | `llm` | text/json out, tool calling | `LLM_STANDARD` |
 | `Mistral-Nemo-Instruct-2407` | LLM | `llm` | text/json out, tool calling | `LLM_STANDARD` |
-| `Mistral-7B-Instruct-v0.3` | LLM | `llm` | text/json out, tool calling | `LLM_STANDARD` |
 | `Qwen3Guard-Gen-8B` | LLM Guard | `moderation` | text in, blocked/safe boolean out | `MODERATION_GUARD` |
 | `Qwen3Guard-Gen-0.6B` | LLM Guard | `moderation` | text in, blocked/safe boolean out | `MODERATION_GUARD` |
 | `Qwen3-Embedding-8B` | Embeddings | `text-embedding` | text in, vectors out | `EMBEDDINGS` |
@@ -67,16 +64,13 @@ Reference date: 2026-03-31.
 
 #### Context windows from OVH catalog
 
-- `Qwen3-Coder-30B-A3B-Instruct`: 256K
 - `gpt-oss-120b`: 131K
 - `gpt-oss-20b`: 131K
-- `Qwen3-32B`: 32K
 - `Qwen3.6-27B`: 262K
 - `Qwen3.5-397B-A17B`: 262K
 - `Qwen3.5-9B`: 262K
 - `Mistral-Small-3.2-24B-Instruct-2506`: 128K
 - `Meta-Llama-3_3-70B-Instruct`: 131K
-- `Mistral-7B-Instruct-v0.3`: 127K
 - `Qwen2.5-VL-72B-Instruct`: 32K
 - `Mistral-Nemo-Instruct-2407`: 118K
 - `Qwen3Guard-Gen-8B`: 32K
