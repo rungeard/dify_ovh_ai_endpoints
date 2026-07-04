@@ -4,3 +4,6 @@ uv.lock
 __pycache__/
 .env
 dist/
+.junie/
+.codex/
+.codex
