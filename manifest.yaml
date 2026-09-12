@@ -1,4 +1,4 @@
-version: 4.0.3
+version: 4.0.4
 type: plugin
 author: "rungeard"
 name: "ovh_ai_endpoints"
@@ -30,7 +30,7 @@ plugins:
   models:
     - "provider/ovh_ai_endpoints.yaml"
 meta:
-  version: 4.0.3
+  version: 4.0.4
   arch:
     - "amd64"
     - "arm64"
