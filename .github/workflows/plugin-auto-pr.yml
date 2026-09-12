@@ -106,11 +106,11 @@ jobs:
 
           ## Plugin information
 
-          - Author: __AUTHOR__
-          - Plugin name: __PLUGIN_NAME__
-          - Version: __VERSION__
-          - Source repository: https://github.com/rungeard/dify_ovh_ai_endpoints
-          - Contact: dify@rungeard.eu
+          - **Author**: __AUTHOR__
+          - **Plugin name**: __PLUGIN_NAME__
+          - **Version**: __VERSION__
+          - **Source repository**: https://github.com/rungeard/dify_ovh_ai_endpoints
+          - **Contact**: dify@rungeard.eu
 
           ## Submission type
 
