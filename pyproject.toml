@@ -1,11 +1,11 @@
 [project]
 name = "ovh-ai-endpoints"
-version = "3.0.0"
+version = "4.0.0"
 description = "Dify model provider for OVH AI Endpoints"
 readme = "README.md"
 requires-python = ">=3.12"
 
-# uv pip compile pyproject.toml -o ./requirements.txt
+# uv export --no-dev --format requirements-txt --output-file requirements.txt
 dependencies = [
     "dify-plugin==0.9.1",
     "httpx==0.28.1",
