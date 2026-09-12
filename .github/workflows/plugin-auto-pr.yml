@@ -96,6 +96,65 @@ jobs:
           REPO="langgenius/dify-plugins"
           HEAD="${{ steps.plugin_info.outputs.author }}:${{ steps.publish.outputs.branch_name }}"
           BASE="main"
+          PLUGIN_NAME="${{ steps.plugin_info.outputs.plugin_name }}"
+          VERSION="${{ steps.plugin_info.outputs.version }}"
+          AUTHOR="${{ steps.plugin_info.outputs.author }}"
+          PR_BODY="$RUNNER_TEMP/plugin-pr-body.md"
+
+          cat > "$PR_BODY" <<EOF
+          # Plugin Submission
+
+          ## Plugin information
+
+          - Author: ${AUTHOR}
+          - Plugin name: ${PLUGIN_NAME}
+          - Version: ${VERSION}
+          - Source repository: https://github.com/rungeard/dify_ovh_ai_endpoints
+          - Contact: dify@rungeard.eu
+
+          ## Submission type
+
+          - [ ] New plugin
+          - [x] Version update
+
+          ## What changed
+
+          Updated the OVH AI Endpoints plugin to version ${VERSION}.
+
+          ## Risk level
+
+          - [ ] Low risk
+          - [x] Medium risk
+          - [ ] High risk
+
+          ## Required checks
+
+          - [x] I have read and followed the Marketplace submission requirements.
+          - [x] I have read and comply with the Plugin Developer Agreement.
+          - [x] I tested this plugin on Dify Community Edition and Dify Cloud, or documented any limitation below.
+          - [x] The package contains only files needed at runtime.
+          - [x] The package does not contain secrets, local credentials, `.env` files, `.git` directories, virtual environments, caches, logs, or IDE files.
+          - [x] The package does not contain executables or bundled binaries, or I explained why they are required below.
+          - [x] The plugin README includes setup steps, usage instructions, required APIs or credentials, connection requirements, and the source repository link.
+          - [x] The plugin includes `PRIVACY.md` or a hosted privacy policy, and `manifest.yaml` references it.
+          - [x] All user-facing text is primarily in English, with any localized README files following the i18n guidance.
+
+          ## Security and privacy notes
+
+          This plugin is medium risk because it sends user-provided prompts, images, and audio to fixed OVH AI Endpoints HTTPS domains to perform inference. It uses the API key supplied through Dify only to authenticate these requests; it does not persist credentials, prompts, or responses.
+
+          The plugin does not execute commands or code, access the local filesystem, run SQL, automate browsers, or fetch arbitrary user-controlled URLs. Its Dify tool permission exposes model invocation only.
+
+          ## Local validation
+
+          - `uv run pytest`
+          - `uv run ruff check`
+          - Limitation: Dify Community Edition and Dify Cloud integration tests require a running Dify instance and OVH credentials, so they are not run by this CI workflow.
+
+          ## Reviewer notes
+
+          This PR contains only the generated `.difypkg` version update.
+          EOF
 
           EXISTING_PR_NUMBER=$(gh pr list \
             --repo "$REPO" \
@@ -106,7 +165,10 @@ jobs:
             --jq '.[0].number')
 
           if [ -n "$EXISTING_PR_NUMBER" ]; then
-            echo "Open PR already exists: #$EXISTING_PR_NUMBER"
+            gh pr edit "$EXISTING_PR_NUMBER" \
+              --repo "$REPO" \
+              --title "bump ${PLUGIN_NAME} plugin to version ${VERSION}" \
+              --body-file "$PR_BODY"
             exit 0
           fi
 
@@ -114,5 +176,5 @@ jobs:
             --repo "$REPO" \
             --head "$HEAD" \
             --base "$BASE" \
-            --title "bump ${{ steps.plugin_info.outputs.plugin_name }} plugin to version ${{ steps.plugin_info.outputs.version }}" \
-            --body "Bump ${{ steps.plugin_info.outputs.plugin_name }} plugin package to version ${{ steps.plugin_info.outputs.version }}."
+            --title "bump ${PLUGIN_NAME} plugin to version ${VERSION}" \
+            --body-file "$PR_BODY"

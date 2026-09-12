@@ -30,17 +30,19 @@ The plugin uses your data only to:
 
 ## Data Sharing
 
-- Data is shared with OVH AI Endpoints as required to serve model requests.
+- Prompts, images, audio, model parameters, and the API key needed for a request are sent only to the fixed OVH AI Endpoints HTTPS domains declared in `manifest.yaml`.
+- The plugin does not accept user-controlled endpoint URLs or forward data to arbitrary destinations.
 - No additional third-party data sharing is implemented by this plugin.
 
 ## Security
 
 - Requests are sent over HTTPS to OVH endpoints.
 - The plugin includes basic runtime validation and timeout controls to reduce operational risk.
+- The plugin does not execute operating-system commands, access local files, run SQL queries, or automate browsers.
 
 ## Contact
 
 For privacy questions or requests:
 
 - Repository: https://github.com/rungeard/dify_ovh_ai_endpoints
-- Issues: https://github.com/rungeard/dify_ovh_ai_endpoints/issues
+- Email: dify@rungeard.eu
