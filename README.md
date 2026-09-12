@@ -77,5 +77,5 @@ Reference date: 2026-03-31.
 ### Submission metadata
 
 - Repository: https://github.com/rungeard/dify_ovh_ai_endpoints
-- Contact: https://github.com/rungeard/dify_ovh_ai_endpoints/issues
+- Contact: dify@rungeard.eu
 - Privacy policy: `./PRIVACY.md`

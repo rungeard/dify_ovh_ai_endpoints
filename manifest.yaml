@@ -1,7 +1,9 @@
-version: 4.0.0
+version: 4.0.1
 type: plugin
 author: "rungeard"
 name: "ovh_ai_endpoints"
+repo: https://github.com/rungeard/dify_ovh_ai_endpoints
+contact: dify@rungeard.eu
 description:
   en_US: Access OVH AI Endpoints models through an OpenAI-compatible API.
 label:
@@ -9,6 +11,9 @@ label:
 created_at: "2026-03-31T00:00:00.000000000Z"
 icon: icon.svg
 privacy: "./PRIVACY.md"
+network:
+  domains:
+    - "*.endpoints.kepler.ai.cloud.ovh.net"
 resource:
   memory: 1048576
   permission:
@@ -25,7 +30,7 @@ plugins:
   models:
     - "provider/ovh_ai_endpoints.yaml"
 meta:
-  version: 4.0.0
+  version: 4.0.1
   arch:
     - "amd64"
     - "arm64"
