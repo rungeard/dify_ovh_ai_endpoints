@@ -101,14 +101,14 @@ jobs:
           AUTHOR="${{ steps.plugin_info.outputs.author }}"
           PR_BODY="$RUNNER_TEMP/plugin-pr-body.md"
 
-          cat > "$PR_BODY" <<EOF
+          cat > "$PR_BODY" <<'EOF'
           # Plugin Submission
 
           ## Plugin information
 
-          - Author: ${AUTHOR}
-          - Plugin name: ${PLUGIN_NAME}
-          - Version: ${VERSION}
+          - Author: __AUTHOR__
+          - Plugin name: __PLUGIN_NAME__
+          - Version: __VERSION__
           - Source repository: https://github.com/rungeard/dify_ovh_ai_endpoints
           - Contact: dify@rungeard.eu
 
@@ -119,12 +119,12 @@ jobs:
 
           ## What changed
 
-          Updated the OVH AI Endpoints plugin to version ${VERSION}.
+          Updated the OVH AI Endpoints plugin to version __VERSION__.
 
           ## Risk level
 
-          - [ ] Low risk
-          - [x] Medium risk
+          - [x] Low risk
+          - [ ] Medium risk
           - [ ] High risk
 
           ## Required checks
@@ -141,7 +141,7 @@ jobs:
 
           ## Security and privacy notes
 
-          This plugin is medium risk because it sends user-provided prompts, images, and audio to fixed OVH AI Endpoints HTTPS domains to perform inference. It uses the API key supplied through Dify only to authenticate these requests; it does not persist credentials, prompts, or responses.
+          This plugin is low risk because it sends user-provided prompts, images, and audio only to fixed OVH AI Endpoints HTTPS domains to perform inference. It uses the API key supplied through Dify only to authenticate these requests; it does not persist credentials, prompts, or responses.
 
           The plugin does not execute commands or code, access the local filesystem, run SQL, automate browsers, or fetch arbitrary user-controlled URLs. Its Dify tool permission exposes model invocation only.
 
@@ -155,6 +155,12 @@ jobs:
 
           This PR contains only the generated `.difypkg` version update.
           EOF
+
+          sed -i \
+            -e "s|__AUTHOR__|${AUTHOR}|g" \
+            -e "s|__PLUGIN_NAME__|${PLUGIN_NAME}|g" \
+            -e "s|__VERSION__|${VERSION}|g" \
+            "$PR_BODY"
 
           EXISTING_PR_NUMBER=$(gh pr list \
             --repo "$REPO" \
