@@ -11,6 +11,7 @@ import wave
 from binascii import hexlify
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -26,7 +27,7 @@ from dify_plugin.core.entities.plugin.request import (
 )
 from dify_plugin.entities.model import AIModelEntity, ModelType
 from dify_plugin.entities.model.llm import LLMResultChunk
-from dify_plugin.entities.model.message import PromptMessageTool
+from dify_plugin.entities.model.message import PromptMessageTool, UserPromptMessage
 from dify_plugin.entities.model.moderation import ModerationResult
 from dify_plugin.entities.model.speech2text import Speech2TextResult
 from dify_plugin.entities.model.text_embedding import TextEmbeddingResult
@@ -41,6 +42,7 @@ if str(BASE_DIR) not in sys.path:
 OpenAITextEmbeddingModel = importlib.import_module(
     "models.text_embedding.text_embedding"
 ).OpenAITextEmbeddingModel
+OpenAILargeLanguageModel = importlib.import_module("models.llm.llm").OpenAILargeLanguageModel
 _TTS_MODEL_CONFIG = importlib.import_module("models.tts.tts")._TTS_MODEL_CONFIG
 
 PROVIDER_NAME = "ovh_ai_endpoints"
@@ -201,6 +203,25 @@ def test_all_model_manifests_have_unique_model_ids() -> None:
 
 def test_tts_model_manifests_match_runtime_config() -> None:
     assert set(TTS_MANIFESTS) == set(_TTS_MODEL_CONFIG)
+
+
+def test_llm_response_without_content_preserves_reasoning() -> None:
+    model_name = "Qwen3.5-9B"
+    schema = AIModelEntity.model_validate(LLM_MANIFESTS[model_name])
+    model = OpenAILargeLanguageModel([schema])
+    response = Mock()
+    response.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "reasoning": "Thinking"}}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+    }
+
+    with model.timing_context():
+        result = model._handle_generate_response(
+            model_name, {"mode": "chat"}, response, [UserPromptMessage(content="Hello")]
+        )
+
+    assert result.message.content == "<think>\nThinking\n</think>"
+    assert result.usage.completion_tokens == 1
 
 
 def _collect_llm_output(results: list[LLMResultChunk]) -> tuple[str, bool]:

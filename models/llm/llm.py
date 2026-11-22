@@ -2,7 +2,7 @@ import re
 from collections.abc import Generator, Mapping
 from contextlib import suppress
 from http import HTTPStatus
-from typing import ClassVar
+from typing import ClassVar, override
 from urllib.parse import urljoin
 
 import httpx
@@ -22,6 +22,7 @@ from dify_plugin.entities.model.message import (
 )
 from dify_plugin.errors.model import CredentialsValidateFailedError
 from dify_plugin.interfaces.model.openai_compatible.llm import OAICompatLargeLanguageModel
+from requests import Response
 
 from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 
@@ -74,34 +75,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             "top_p",
         }
     )
-
-    def _wrap_thinking_by_reasoning_content(
-        self, delta: dict, is_reasoning: bool
-    ) -> tuple[str, bool]:
-        """
-        Override base wrapper to support OVH `reasoning` deltas, emitting
-        <think> blocks compatible with Dify's downstream filters.
-        """
-        reasoning_piece = delta.get("reasoning") or ""
-        content_piece = delta.get("content") or ""
-
-        if reasoning_piece:
-            if not is_reasoning:
-                # Open a think block on first reasoning token
-                output = f"<think>\n{reasoning_piece}"
-                is_reasoning = True
-            else:
-                # Continue streaming inside the think block
-                output = str(reasoning_piece)
-        elif is_reasoning:
-            # No reasoning token in this delta, close the think block
-            is_reasoning = False
-            output = f"\n</think>{content_piece}"
-        else:
-            # No reasoning token and not in a reasoning block
-            output = content_piece
-
-        return output, is_reasoning
 
     # Timeout for validation requests: (connect_timeout, read_timeout) in seconds
     _VALIDATE_TIMEOUT = (10, 300)
@@ -279,6 +252,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             if new_content != p.content:
                 p.content = new_content
 
+    @override
     def _invoke(
         self,
         model: str,
@@ -342,6 +316,39 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             model, invoke_credentials, prompt_messages, model_parameters, tools, stop, stream, None
         )
         return result
+
+    @override
+    def _handle_generate_response(
+        self,
+        model: str,
+        credentials: dict,
+        response: Response,
+        prompt_messages: list[PromptMessage],
+        tools: list[PromptMessageTool] | None = None,
+    ) -> LLMResult:
+        if credentials["mode"] == LLMMode.CHAT.value:
+            body = response.json()
+            choice = next(iter(body.get("choices", [])), {})
+            message = choice.get("message") or {}
+            reasoning = message.get("reasoning") or message.get("reasoning_content")
+            if (
+                reasoning
+                and not message.get("content")
+                and not message.get("tool_calls")
+                and not message.get("function_call")
+            ):
+                assistant = AssistantPromptMessage(content=f"<think>\n{reasoning}\n</think>")
+                return LLMResult(
+                    id=body.get("id"),
+                    model=body.get("model", model),
+                    message=assistant,
+                    usage=self._get_response_usage(
+                        model, credentials, prompt_messages, assistant, body.get("usage"), tools
+                    ),
+                )
+        return super()._handle_generate_response(
+            model, credentials, response, prompt_messages, tools
+        )
 
     @staticmethod
     def _supports_tool_call(schema: AIModelEntity | None) -> bool:
