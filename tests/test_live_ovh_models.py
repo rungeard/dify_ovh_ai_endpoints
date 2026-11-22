@@ -25,7 +25,7 @@ from dify_plugin.core.entities.plugin.request import (
     ModelInvokeTTSRequest,
     PluginInvokeType,
 )
-from dify_plugin.entities.model import AIModelEntity, ModelType
+from dify_plugin.entities.model import AIModelEntity, EmbeddingInputType, ModelType
 from dify_plugin.entities.model.llm import LLMResultChunk
 from dify_plugin.entities.model.message import PromptMessageTool, UserPromptMessage
 from dify_plugin.entities.model.moderation import ModerationResult
@@ -451,6 +451,7 @@ def test_text_embedding_invoke_minimal_and_full(
         model=model_name,
         credentials=anonymous_credentials,
         texts=["OVH embedding smoke test."],
+        input_type=EmbeddingInputType.DOCUMENT,
     )
     try:
         minimal_result = next(
@@ -473,11 +474,11 @@ def test_text_embedding_invoke_minimal_and_full(
             {
                 "api_key": "",
                 "vision_support": "support",
-                "query_instruction_prefix": "Query: ",
+                "query_prefix": "Query:",
                 "encoding_format": "float",
             },
             full_input_texts,
-            input_type="query",
+            input_type=EmbeddingInputType.QUERY,
         )
         assert len(full_result.embeddings) == len(full_input_texts)
         assert all(embedding for embedding in full_result.embeddings)
