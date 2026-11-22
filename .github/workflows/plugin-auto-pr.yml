@@ -39,22 +39,6 @@ jobs:
           "$RUNNER_TEMP/bin/dify-plugin-linux-amd64" plugin package . -o "$PACKAGE_NAME"
           echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub release in source repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION="${{ steps.plugin_info.outputs.version }}"
-          PACKAGE_NAME="${{ steps.package.outputs.package_name }}"
-          TAG_NAME="v${VERSION}"
-
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$PACKAGE_NAME" --clobber
-          else
-            gh release create "$TAG_NAME" "$PACKAGE_NAME" \
-              --title "$TAG_NAME" \
-              --generate-notes
-          fi
-
       - name: Checkout Marketplace main
         uses: actions/checkout@v7.0.1
         with:
@@ -80,17 +64,38 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git remote set-url --push origin "https://github.com/${AUTHOR}/dify-plugins.git"
-          git checkout -B "$BRANCH_NAME"
+          # Use the latest upstream package state without importing unrelated later workflows.
+          PACKAGE_BASE=$(git log -1 --format=%H HEAD -- "$PLUGIN_DIR")
+          git checkout -B "$BRANCH_NAME" "${PACKAGE_BASE:-HEAD}"
 
           # Marketplace governance expects one current package per plugin directory.
           git rm --ignore-unmatch -- ":(glob)${PLUGIN_DIR}/*.difypkg"
           mkdir -p "$PLUGIN_DIR"
           mv "../$PACKAGE_NAME" "$PLUGIN_DIR/"
           git add -- "$PLUGIN_DIR/$PACKAGE_NAME"
-          git commit -m "bump ${PLUGIN_NAME} plugin to version ${VERSION}" || echo "No changes to commit"
-          git push -u origin "$BRANCH_NAME" --force
+          git commit -m "bump ${PLUGIN_NAME} plugin to version ${VERSION}"
+          if ! git push -u origin "$BRANCH_NAME" --force; then
+            echo "::error::Could not push the Marketplace branch. If GitHub reports a workflow permission error, sync the fork with upstream main or grant PLUGIN_FORK_TOKEN permission to write workflows on the fork."
+            exit 1
+          fi
 
           echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release in source repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.plugin_info.outputs.version }}"
+          PACKAGE_NAME="${{ steps.package.outputs.package_name }}"
+          TAG_NAME="v${VERSION}"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$PACKAGE_NAME" --clobber
+          else
+            gh release create "$TAG_NAME" "$PACKAGE_NAME" \
+              --title "$TAG_NAME" \
+              --generate-notes
+          fi
 
       - name: Create PR to upstream
         env:
