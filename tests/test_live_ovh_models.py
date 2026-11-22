@@ -11,6 +11,7 @@ import wave
 from binascii import hexlify
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -24,9 +25,9 @@ from dify_plugin.core.entities.plugin.request import (
     ModelInvokeTTSRequest,
     PluginInvokeType,
 )
-from dify_plugin.entities.model import AIModelEntity, ModelType
+from dify_plugin.entities.model import AIModelEntity, EmbeddingInputType, ModelType
 from dify_plugin.entities.model.llm import LLMResultChunk
-from dify_plugin.entities.model.message import PromptMessageTool
+from dify_plugin.entities.model.message import PromptMessageTool, UserPromptMessage
 from dify_plugin.entities.model.moderation import ModerationResult
 from dify_plugin.entities.model.speech2text import Speech2TextResult
 from dify_plugin.entities.model.text_embedding import TextEmbeddingResult
@@ -41,6 +42,7 @@ if str(BASE_DIR) not in sys.path:
 OpenAITextEmbeddingModel = importlib.import_module(
     "models.text_embedding.text_embedding"
 ).OpenAITextEmbeddingModel
+OpenAILargeLanguageModel = importlib.import_module("models.llm.llm").OpenAILargeLanguageModel
 _TTS_MODEL_CONFIG = importlib.import_module("models.tts.tts")._TTS_MODEL_CONFIG
 
 PROVIDER_NAME = "ovh_ai_endpoints"
@@ -196,10 +198,30 @@ def _embedding_model() -> OpenAITextEmbeddingModel:
 def test_all_model_manifests_have_unique_model_ids() -> None:
     model_ids = LLM_MODELS + MODERATION_MODELS + EMBEDDING_MODELS + SPEECH2TEXT_MODELS + TTS_MODELS
     assert len(model_ids) == len(set(model_ids))
+    assert set(LLM_MODELS) == set(LLM_MANIFESTS)
 
 
 def test_tts_model_manifests_match_runtime_config() -> None:
     assert set(TTS_MANIFESTS) == set(_TTS_MODEL_CONFIG)
+
+
+def test_llm_response_without_content_preserves_reasoning() -> None:
+    model_name = "Qwen3.5-9B"
+    schema = AIModelEntity.model_validate(LLM_MANIFESTS[model_name])
+    model = OpenAILargeLanguageModel([schema])
+    response = Mock()
+    response.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "reasoning": "Thinking"}}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 1},
+    }
+
+    with model.timing_context():
+        result = model._handle_generate_response(
+            model_name, {"mode": "chat"}, response, [UserPromptMessage(content="Hello")]
+        )
+
+    assert result.message.content == "<think>\nThinking\n</think>"
+    assert result.usage.completion_tokens == 1
 
 
 def _collect_llm_output(results: list[LLMResultChunk]) -> tuple[str, bool]:
@@ -234,7 +256,7 @@ def _llm_full_parameters(model_name: str) -> dict[str, object]:
     if "frequency_penalty" in parameter_names:
         parameters["frequency_penalty"] = 0.1
     if "max_tokens" in parameter_names:
-        parameters["max_tokens"] = 32
+        parameters["max_tokens"] = 512 if "agent-thought" in manifest.get("features", []) else 128
     if "response_format" in parameter_names:
         parameters["response_format"] = "json_schema"
     if "json_schema" in parameter_names:
@@ -303,14 +325,23 @@ def test_llm_invoke_minimal_and_full(
     anonymous_credentials: dict[str, str],
     model_name: str,
 ) -> None:
+    prompt = "Say hello in one word."
+    minimal_parameters: dict[str, str] = {}
+    full_parameters = _llm_full_parameters(model_name)
+    full_messages = _llm_full_prompt_messages(model_name)
+    if model_name == "Olala-v1.0-translate":
+        prompt = "Hello"
+        minimal_parameters = {"source_language": "English", "target_language": "French"}
+        full_parameters.update(minimal_parameters)
+        full_messages = [{"role": "user", "content": "Good morning"}]
     minimal_payload = ModelInvokeLLMRequest(
         user_id="test_user",
         provider=PROVIDER_NAME,
         model_type=ModelType.LLM,
         model=model_name,
         credentials=anonymous_credentials,
-        prompt_messages=[{"role": "user", "content": "Say hello in one word."}],
-        model_parameters={},
+        prompt_messages=[{"role": "user", "content": prompt}],
+        model_parameters=minimal_parameters,
         stop=None,
         tools=None,
         stream=False,
@@ -322,8 +353,8 @@ def test_llm_invoke_minimal_and_full(
         model_type=ModelType.LLM,
         model=model_name,
         credentials=anonymous_credentials,
-        prompt_messages=_llm_full_prompt_messages(model_name),
-        model_parameters=_llm_full_parameters(model_name),
+        prompt_messages=full_messages,
+        model_parameters=full_parameters,
         stop=["__never_stop__"],
         tools=_llm_full_tools(model_name),
         stream=True,
@@ -420,6 +451,7 @@ def test_text_embedding_invoke_minimal_and_full(
         model=model_name,
         credentials=anonymous_credentials,
         texts=["OVH embedding smoke test."],
+        input_type=EmbeddingInputType.DOCUMENT,
     )
     try:
         minimal_result = next(
@@ -442,11 +474,11 @@ def test_text_embedding_invoke_minimal_and_full(
             {
                 "api_key": "",
                 "vision_support": "support",
-                "query_instruction_prefix": "Query: ",
+                "query_prefix": "Query:",
                 "encoding_format": "float",
             },
             full_input_texts,
-            input_type="query",
+            input_type=EmbeddingInputType.QUERY,
         )
         assert len(full_result.embeddings) == len(full_input_texts)
         assert all(embedding for embedding in full_result.embeddings)

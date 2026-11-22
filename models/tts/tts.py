@@ -2,7 +2,7 @@ import re
 from collections.abc import Generator, Mapping
 from http import HTTPStatus
 from io import BytesIO
-from typing import Any
+from typing import Any, override
 
 import httpx
 from dify_plugin import TTSModel
@@ -88,6 +88,7 @@ class OpenAIText2SpeechModel(TTSModel):
             return content_text
         return cls._THINK_PATTERN.sub("", content_text, count=1)
 
+    @override
     def _invoke(
         self,
         model: str,

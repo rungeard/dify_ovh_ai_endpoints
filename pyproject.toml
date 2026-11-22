@@ -1,13 +1,13 @@
 [project]
 name = "ovh-ai-endpoints"
-version = "4.0.4"
+version = "5.0.0"
 description = "Dify model provider for OVH AI Endpoints"
 readme = "README.md"
 requires-python = ">=3.12"
 
-# uv export --no-dev --format requirements-txt --output-file requirements.txt
+# uv export --no-dev --no-hashes --format requirements-txt --output-file requirements.txt
 dependencies = [
-    "dify-plugin==0.9.1",
+    "dify-plugin==0.11.1",
     "httpx==0.28.1",
     "pydub==0.25.1",
 ]
@@ -15,8 +15,8 @@ dependencies = [
 # uv run ruff check --fix
 [dependency-groups]
 dev = [
-    "pytest==9.1.1",
-    "ruff==0.15.20",
+    "pytest==9.2.0",
+    "ruff==0.17.6",
 ]
 
 [tool.ruff]

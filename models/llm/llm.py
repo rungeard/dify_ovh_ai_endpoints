@@ -2,7 +2,7 @@ import re
 from collections.abc import Generator, Mapping
 from contextlib import suppress
 from http import HTTPStatus
-from typing import ClassVar
+from typing import ClassVar, override
 from urllib.parse import urljoin
 
 import httpx
@@ -22,11 +22,14 @@ from dify_plugin.entities.model.message import (
 )
 from dify_plugin.errors.model import CredentialsValidateFailedError
 from dify_plugin.interfaces.model.openai_compatible.llm import OAICompatLargeLanguageModel
+from requests import Response
 
-from models.ovh_credentials import build_ovh_credentials
+from models.ovh_credentials import build_ovh_auth_headers, build_ovh_credentials
 
 
 class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
+    _TRANSLATION_MODEL = "Olala-v1.0-translate"
+    _QWEN_XHIGH_MODELS = frozenset({"Qwen3.8-27B", "Qwen3.6-27B"})
     # Pre-compiled regex for better performance
     _THINK_PATTERN = re.compile(r"^<think>.*?</think>\s*", re.DOTALL)
     # Models that require max_completion_tokens (OpenAI Responses API family)
@@ -42,9 +45,12 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             "n",
             "parallel_tool_calls",
             "presence_penalty",
+            "reasoning_effort",
             "response_format",
             "seed",
+            "source_language",
             "stop",
+            "target_language",
             "temperature",
             "tool_choice",
             "tools",
@@ -69,34 +75,6 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             "top_p",
         }
     )
-
-    def _wrap_thinking_by_reasoning_content(
-        self, delta: dict, is_reasoning: bool
-    ) -> tuple[str, bool]:
-        """
-        Override base wrapper to support OVH `reasoning` deltas, emitting
-        <think> blocks compatible with Dify's downstream filters.
-        """
-        reasoning_piece = delta.get("reasoning") or ""
-        content_piece = delta.get("content") or ""
-
-        if reasoning_piece:
-            if not is_reasoning:
-                # Open a think block on first reasoning token
-                output = f"<think>\n{reasoning_piece}"
-                is_reasoning = True
-            else:
-                # Continue streaming inside the think block
-                output = str(reasoning_piece)
-        elif is_reasoning:
-            # No reasoning token in this delta, close the think block
-            is_reasoning = False
-            output = f"\n</think>{content_piece}"
-        else:
-            # No reasoning token and not in a reasoning block
-            output = content_piece
-
-        return output, is_reasoning
 
     # Timeout for validation requests: (connect_timeout, read_timeout) in seconds
     _VALIDATE_TIMEOUT = (10, 300)
@@ -126,10 +104,12 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         # instead of letting the base class fail with max_tokens first.
         param_pref = credentials.get("token_param_name", "auto")
         endpoint_model = credentials.get("endpoint_model_name") or model
-        if param_pref == "max_completion_tokens" or (
-            param_pref == "auto" and self._needs_max_completion_tokens(endpoint_model)
+        if (
+            endpoint_model == self._TRANSLATION_MODEL
+            or param_pref == "max_completion_tokens"
+            or (param_pref == "auto" and self._needs_max_completion_tokens(endpoint_model))
         ):
-            self._retry_with_safe_min_tokens(model, credentials)
+            self._validate_with_safe_min_tokens(model, credentials)
             return
 
         try:
@@ -142,14 +122,14 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
                 "Invalid 'max_output_tokens'" in msg or "integer_below_min_value" in msg
             )
             if should_retry_floor:
-                self._retry_with_safe_min_tokens(model, credentials)
+                self._validate_with_safe_min_tokens(model, credentials)
                 return
 
             # Propagate unrelated validation errors
             raise
 
-    def _retry_with_safe_min_tokens(self, model: str, credentials: dict) -> None:
-        """Retry validation with a safe minimum token count for Responses API."""
+    def _validate_with_safe_min_tokens(self, model: str, credentials: dict) -> None:
+        """Validate models that need a token floor or additional request fields."""
         endpoint_url = credentials.get("endpoint_url")
         if not endpoint_url:
             raise CredentialsValidateFailedError("Missing endpoint_url in credentials")
@@ -166,8 +146,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         safe_min_tokens = 16
 
         try:
-            headers = {"Content-Type": "application/json"}
-            headers["Authorization"] = f"Bearer {api_key}"
+            headers = build_ovh_auth_headers(api_key)
 
             if mode == "chat":
                 endpoint = urljoin(endpoint_url.rstrip("/") + "/", "chat/completions")
@@ -176,6 +155,8 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
                     "messages": [{"role": "user", "content": "ping"}],
                     "stream": False,
                 }
+                if endpoint_model == self._TRANSLATION_MODEL:
+                    payload.update(source_language="English", target_language="French")
                 if use_max_completion:
                     payload["max_completion_tokens"] = safe_min_tokens
                 else:
@@ -271,6 +252,7 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             if new_content != p.content:
                 p.content = new_content
 
+    @override
     def _invoke(
         self,
         model: str,
@@ -286,6 +268,12 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
         schema = self.get_model_schema(model, credentials)
         model_parameters = self._sanitize_model_parameters(schema, dict(model_parameters))
         model_parameters = self._normalize_response_format(model_parameters)
+        if model in self._QWEN_XHIGH_MODELS and model_parameters.get("reasoning_effort") == "high":
+            model_parameters["reasoning_effort"] = "xhigh"
+        endpoint_model = credentials.get("endpoint_model_name") or model
+        if endpoint_model.startswith("Olala-v1.0-"):
+            # OVH's Olala router returns an empty stream when stop sequences are sent.
+            stop = None
         # OVH strict mode: keep only explicitly allowed API parameters.
         completion_type = LLMMode.value_of(credentials["mode"])
         if completion_type is LLMMode.CHAT:
@@ -328,6 +316,39 @@ class OpenAILargeLanguageModel(OAICompatLargeLanguageModel):
             model, invoke_credentials, prompt_messages, model_parameters, tools, stop, stream, None
         )
         return result
+
+    @override
+    def _handle_generate_response(
+        self,
+        model: str,
+        credentials: dict,
+        response: Response,
+        prompt_messages: list[PromptMessage],
+        tools: list[PromptMessageTool] | None = None,
+    ) -> LLMResult:
+        if credentials["mode"] == LLMMode.CHAT.value:
+            body = response.json()
+            choice = next(iter(body.get("choices", [])), {})
+            message = choice.get("message") or {}
+            reasoning = message.get("reasoning") or message.get("reasoning_content")
+            if (
+                reasoning
+                and not message.get("content")
+                and not message.get("tool_calls")
+                and not message.get("function_call")
+            ):
+                assistant = AssistantPromptMessage(content=f"<think>\n{reasoning}\n</think>")
+                return LLMResult(
+                    id=body.get("id"),
+                    model=body.get("model", model),
+                    message=assistant,
+                    usage=self._get_response_usage(
+                        model, credentials, prompt_messages, assistant, body.get("usage"), tools
+                    ),
+                )
+        return super()._handle_generate_response(
+            model, credentials, response, prompt_messages, tools
+        )
 
     @staticmethod
     def _supports_tool_call(schema: AIModelEntity | None) -> bool:
