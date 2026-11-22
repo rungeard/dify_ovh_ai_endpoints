@@ -55,13 +55,15 @@ jobs:
               --generate-notes
           fi
 
-      - name: Checkout forked dify-plugins repository
+      - name: Checkout Marketplace main
         uses: actions/checkout@v7.0.1
         with:
-          repository: ${{ steps.plugin_info.outputs.author }}/dify-plugins
+          repository: langgenius/dify-plugins
+          ref: main
           path: dify-plugins
           token: ${{ secrets.PLUGIN_FORK_TOKEN }}
-          fetch-depth: 1
+          fetch-depth: 0
+          sparse-checkout: ${{ steps.plugin_info.outputs.author }}/${{ steps.plugin_info.outputs.plugin_name }}
           persist-credentials: true
 
       - name: Commit package to fork
@@ -73,17 +75,18 @@ jobs:
           AUTHOR="${{ steps.plugin_info.outputs.author }}"
           BRANCH_NAME="bump-${PLUGIN_NAME}-plugin-${VERSION}"
 
-          mkdir -p "dify-plugins/${AUTHOR}/${PLUGIN_NAME}"
-          mv "$PACKAGE_NAME" "dify-plugins/${AUTHOR}/${PLUGIN_NAME}/"
-
+          PLUGIN_DIR="${AUTHOR}/${PLUGIN_NAME}"
           cd dify-plugins
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git fetch origin main
-          git checkout main
-          git pull origin main
+          git remote set-url --push origin "https://github.com/${AUTHOR}/dify-plugins.git"
           git checkout -B "$BRANCH_NAME"
-          git add "${AUTHOR}/${PLUGIN_NAME}/${PACKAGE_NAME}"
+
+          # Marketplace governance expects one current package per plugin directory.
+          git rm --ignore-unmatch -- ":(glob)${PLUGIN_DIR}/*.difypkg"
+          mkdir -p "$PLUGIN_DIR"
+          mv "../$PACKAGE_NAME" "$PLUGIN_DIR/"
+          git add -- "$PLUGIN_DIR/$PACKAGE_NAME"
           git commit -m "bump ${PLUGIN_NAME} plugin to version ${VERSION}" || echo "No changes to commit"
           git push -u origin "$BRANCH_NAME" --force
 
@@ -153,7 +156,7 @@ jobs:
 
           ## Reviewer notes
 
-          This PR contains only the generated `.difypkg` version update.
+          This PR replaces older Marketplace packages with the generated `.difypkg`. Previous releases remain available in the source repository.
           EOF
 
           sed -i \
