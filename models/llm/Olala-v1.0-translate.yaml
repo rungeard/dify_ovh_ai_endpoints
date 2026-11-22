@@ -1,0 +1,36 @@
+model: Olala-v1.0-translate
+label:
+  en_US: Olala-v1.0-translate
+model_type: llm
+model_properties:
+  mode: chat
+  context_size: 8192
+parameter_rules:
+  - name: temperature
+    use_template: temperature
+  - name: top_p
+    use_template: top_p
+  - name: max_tokens
+    use_template: max_tokens
+    default: 4096
+    min: 1
+    max: 8192
+  - name: source_language
+    label:
+      en_US: Source language
+    help:
+      en_US: Language of the input text in English, for example English.
+    type: string
+    required: true
+  - name: target_language
+    label:
+      en_US: Target language
+    help:
+      en_US: Language to translate into in English, for example French.
+    type: string
+    required: true
+pricing:
+  input: "0"
+  output: "0"
+  unit: "0.000001"
+  currency: EUR

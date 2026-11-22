@@ -196,6 +196,7 @@ def _embedding_model() -> OpenAITextEmbeddingModel:
 def test_all_model_manifests_have_unique_model_ids() -> None:
     model_ids = LLM_MODELS + MODERATION_MODELS + EMBEDDING_MODELS + SPEECH2TEXT_MODELS + TTS_MODELS
     assert len(model_ids) == len(set(model_ids))
+    assert set(LLM_MODELS) == set(LLM_MANIFESTS)
 
 
 def test_tts_model_manifests_match_runtime_config() -> None:
@@ -234,7 +235,7 @@ def _llm_full_parameters(model_name: str) -> dict[str, object]:
     if "frequency_penalty" in parameter_names:
         parameters["frequency_penalty"] = 0.1
     if "max_tokens" in parameter_names:
-        parameters["max_tokens"] = 32
+        parameters["max_tokens"] = 512 if "agent-thought" in manifest.get("features", []) else 128
     if "response_format" in parameter_names:
         parameters["response_format"] = "json_schema"
     if "json_schema" in parameter_names:
@@ -303,14 +304,23 @@ def test_llm_invoke_minimal_and_full(
     anonymous_credentials: dict[str, str],
     model_name: str,
 ) -> None:
+    prompt = "Say hello in one word."
+    minimal_parameters: dict[str, str] = {}
+    full_parameters = _llm_full_parameters(model_name)
+    full_messages = _llm_full_prompt_messages(model_name)
+    if model_name == "Olala-v1.0-translate":
+        prompt = "Hello"
+        minimal_parameters = {"source_language": "English", "target_language": "French"}
+        full_parameters.update(minimal_parameters)
+        full_messages = [{"role": "user", "content": "Good morning"}]
     minimal_payload = ModelInvokeLLMRequest(
         user_id="test_user",
         provider=PROVIDER_NAME,
         model_type=ModelType.LLM,
         model=model_name,
         credentials=anonymous_credentials,
-        prompt_messages=[{"role": "user", "content": "Say hello in one word."}],
-        model_parameters={},
+        prompt_messages=[{"role": "user", "content": prompt}],
+        model_parameters=minimal_parameters,
         stop=None,
         tools=None,
         stream=False,
@@ -322,8 +332,8 @@ def test_llm_invoke_minimal_and_full(
         model_type=ModelType.LLM,
         model=model_name,
         credentials=anonymous_credentials,
-        prompt_messages=_llm_full_prompt_messages(model_name),
-        model_parameters=_llm_full_parameters(model_name),
+        prompt_messages=full_messages,
+        model_parameters=full_parameters,
         stop=["__never_stop__"],
         tools=_llm_full_tools(model_name),
         stream=True,
